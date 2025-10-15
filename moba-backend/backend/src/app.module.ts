@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MoviesModule } from './movies/movies.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { MoviesModule } from './movies/movies.module';
       inject: [ConfigService],
     }),
     MoviesModule,
+    AuthModule,
   ],
 })
 export class AppModule {}
