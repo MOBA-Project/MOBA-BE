@@ -1,5 +1,5 @@
 import { 
-  Body, Controller, Get, Post, Put, Delete, UseGuards, Req, ConflictException, BadRequestException 
+  Body, Controller, Get, Post, Put, Delete, UseGuards, Req, Res, ConflictException, BadRequestException 
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -31,8 +31,18 @@ export class AuthController {
   @Post('login')
   @ApiOperation({ summary: '로그인', description: 'JWT 토큰을 발급합니다.' })
   @ApiResponse({ status: 200, type: LoginResponseDto })
-  async login(@Body() dto: LoginRequestDto): Promise<LoginResponseDto> {
-    const { accessToken, user } = await this.authService.login(dto);
+  async login(@Body() dto: LoginRequestDto, @Res({ passthrough: true }) res): Promise<LoginResponseDto> {
+    const { accessToken, refreshToken, user } = await this.authService.login(dto);
+
+    // HttpOnly 쿠키로 refresh 토큰 설정
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: true, // HTTPS 환경 권장
+      sameSite: 'lax',
+      path: '/auth',
+      maxAge: 14 * 24 * 60 * 60 * 1000, // 14d
+    });
+
     return {
       accessToken,
       id: user.id,
@@ -91,8 +101,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Access Token 재발급', description: '리프레시 토큰으로 새 액세스 토큰을 발급합니다.' })
   @ApiResponse({ status: 200, description: '새 Access Token 발급 성공' })
   @ApiResponse({ status: 401, description: '리프레시 토큰이 유효하지 않음' })
-  async refresh(@Body('refreshToken') refreshToken: string) {
-    const newAccessToken = await this.authService.refreshAccessToken(refreshToken);
+  async refresh(@Body('refreshToken') refreshToken: string, @Req() req) {
+    // 요청 본문이 우선, 없으면 쿠키에서 사용
+    const token = refreshToken || req?.cookies?.refreshToken;
+    const newAccessToken = await this.authService.refreshAccessToken(token);
     return { accessToken: newAccessToken };
   }
 

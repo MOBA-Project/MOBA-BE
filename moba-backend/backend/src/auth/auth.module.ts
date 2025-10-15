@@ -19,7 +19,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('JWT_SECRET') || 'default_secret';
+        const secret = configService.get<string>('JWT_ACCESS_SECRET') || 'default_access_secret';
         const expiresIn = (configService.get<string>('JWT_EXPIRES_IN') || '1h') as StringValue;
         return {
           secret,
