@@ -53,4 +53,13 @@ export class AuthController {
     };
   }
 
+  @Post('check-id')
+  @ApiOperation({ summary: '아이디 중복 확인', description: '입력한 아이디가 사용 가능한지 확인합니다.' })
+  @ApiResponse({ status: 200, description: '사용 가능' })
+  @ApiResponse({ status: 409, description: '이미 존재하는 아이디' })
+  async checkId(@Body('id') id: string) {
+    const exists = await this.authService.checkId(id);
+    return { available: !exists };
+  }
+
 }

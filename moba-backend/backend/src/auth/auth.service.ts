@@ -43,6 +43,12 @@ export class AuthService {
     const payload = { sub: user._id, id: user.id };
     const accessToken = this.jwtService.sign(payload);
 
-    return { accessToken, user }; // ✅ 유저 정보도 함께 반환
+    return { accessToken, user }; // 유저 정보도 함께 반환
   }
+
+  async checkId(id: string): Promise<boolean> {
+    const user = await this.userModel.findOne({ id });
+    return !!user; // true면 이미 존재
+  }
+
 }
