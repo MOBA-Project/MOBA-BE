@@ -1,5 +1,5 @@
 import { 
-  Body, Controller, Get, Post, Put, Delete, UseGuards, Req, Res, ConflictException, BadRequestException 
+  Body, Controller, Get, Post, Put, Delete, UseGuards, Req, Res, ConflictException, BadRequestException, UnauthorizedException 
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -41,6 +41,16 @@ export class AuthController {
       sameSite: 'lax',
       path: '/auth',
       maxAge: 14 * 24 * 60 * 60 * 1000, // 14d
+    });
+
+    // CSRF 토큰 발급(더블 서브밋: 쿠키+헤더 비교용)
+    const csrfToken = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    res.cookie('csrfToken', csrfToken, {
+      httpOnly: false, // 프론트에서 헤더로 실어 보낼 수 있어야 함
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 14 * 24 * 60 * 60 * 1000,
     });
 
     return {
@@ -102,6 +112,11 @@ export class AuthController {
   @ApiResponse({ status: 200, description: '새 Access Token 발급 성공' })
   @ApiResponse({ status: 401, description: '리프레시 토큰이 유효하지 않음' })
   async refresh(@Body('refreshToken') refreshToken: string, @Req() req) {
+    const headerToken = req.get('X-CSRF-Token');
+    const cookieToken = req.cookies?.csrfToken;
+    if (!headerToken || !cookieToken || headerToken !== cookieToken) {
+      throw new UnauthorizedException('CSRF token invalid');
+    }
     // 요청 본문이 우선, 없으면 쿠키에서 사용
     const token = refreshToken || req?.cookies?.refreshToken;
     const newAccessToken = await this.authService.refreshAccessToken(token);
@@ -126,6 +141,11 @@ export class AuthController {
   @ApiOperation({ summary: '로그아웃', description: '쿠키와 서버 저장 리프레시 토큰을 무효화합니다.' })
   @ApiResponse({ status: 200, description: '로그아웃 성공' })
   async logout(@Req() req, @Res({ passthrough: true }) res) {
+    const headerToken = req.get('X-CSRF-Token');
+    const cookieToken = req.cookies?.csrfToken;
+    if (!headerToken || !cookieToken || headerToken !== cookieToken) {
+      throw new UnauthorizedException('CSRF token invalid');
+    }
     const userId = req.user.id;
     await this.authService.logout(userId);
     res.cookie('refreshToken', '', {
@@ -133,6 +153,13 @@ export class AuthController {
       secure: true,
       sameSite: 'lax',
       path: '/auth',
+      maxAge: 0,
+    });
+    res.cookie('csrfToken', '', {
+      httpOnly: false,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
       maxAge: 0,
     });
     return { message: '로그아웃 되었습니다.' };
