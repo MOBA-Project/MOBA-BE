@@ -119,4 +119,22 @@ export class AuthController {
     await this.authService.deleteUser(userId);
     return { message: '회원 탈퇴가 완료되었습니다.' };
   }
+
+  @Post('logout')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '로그아웃', description: '쿠키와 서버 저장 리프레시 토큰을 무효화합니다.' })
+  @ApiResponse({ status: 200, description: '로그아웃 성공' })
+  async logout(@Req() req, @Res({ passthrough: true }) res) {
+    const userId = req.user.id;
+    await this.authService.logout(userId);
+    res.cookie('refreshToken', '', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/auth',
+      maxAge: 0,
+    });
+    return { message: '로그아웃 되었습니다.' };
+  }
 }

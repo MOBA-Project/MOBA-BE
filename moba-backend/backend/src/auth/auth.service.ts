@@ -125,4 +125,11 @@ export class AuthService {
     if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
     return true;
   }
+
+  async logout(userId: string): Promise<void> {
+    const user = await this.userModel.findOne({ id: userId });
+    if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
+    user.refreshToken = undefined;
+    await user.save();
+  }
 }
