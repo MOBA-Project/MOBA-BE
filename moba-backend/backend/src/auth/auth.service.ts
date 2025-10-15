@@ -33,7 +33,7 @@ export class AuthService {
     return user;
   }
 
-  async login(dto: LoginRequestDto): Promise<{ accessToken: string; user: UserDocument }> {
+  async login(dto: LoginRequestDto): Promise<{ accessToken: string; refreshToken: string; user: UserDocument }> {
     const { id, password } = dto;
 
     const user = await this.userModel.findOne({ id });
@@ -43,9 +43,35 @@ export class AuthService {
     if (!isPasswordValid) throw new UnauthorizedException('비밀번호가 일치하지 않습니다.');
 
     const payload = { sub: user._id, id: user.id };
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign(payload, { expiresIn: '14d' });
 
-    return { accessToken, user };
+    //bcrypt로 해싱 후 DB 저장
+    const hashedRefresh = await bcrypt.hash(refreshToken, 10);
+    user.refreshToken = hashedRefresh;
+    await user.save();
+    
+  
+    return { accessToken, refreshToken, user };
+  }
+
+  async refreshAccessToken(refreshToken: string): Promise<string> {
+    try {
+      // 토큰 유효성 검증
+      const payload = this.jwtService.verify(refreshToken);
+      const user = await this.userModel.findById(payload.sub);
+      if (!user || !user.refreshToken) throw new UnauthorizedException('유효하지 않은 사용자입니다.');
+
+      // DB의 해시된 refreshToken과 비교
+      const isValid = await bcrypt.compare(refreshToken, user.refreshToken);
+      if (!isValid) throw new UnauthorizedException('리프레시 토큰이 일치하지 않습니다.');
+
+      // 새 Access Token 발급
+      const newAccess = this.jwtService.sign({ sub: user._id, id: user.id }, { expiresIn: '1h' });
+      return newAccess;
+    } catch (err) {
+      throw new UnauthorizedException('리프레시 토큰이 만료되었거나 유효하지 않습니다.');
+    }
   }
 
   async checkId(id: string): Promise<boolean> {

@@ -87,6 +87,15 @@ export class AuthController {
     };
   }
 
+  @Post('refresh')
+  @ApiOperation({ summary: 'Access Token 재발급', description: '리프레시 토큰으로 새 액세스 토큰을 발급합니다.' })
+  @ApiResponse({ status: 200, description: '새 Access Token 발급 성공' })
+  @ApiResponse({ status: 401, description: '리프레시 토큰이 유효하지 않음' })
+  async refresh(@Body('refreshToken') refreshToken: string) {
+    const newAccessToken = await this.authService.refreshAccessToken(refreshToken);
+    return { accessToken: newAccessToken };
+  }
+
   @Delete('delete')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
