@@ -29,11 +29,13 @@ export class MoviesController {
     return this.moviesService.getMovieVideos(id);
   }
 
-  @Get('search/query')
+  @Get('search')
   @ApiOperation({ summary: '영화 검색', description: '검색어를 기준으로 영화 목록을 검색합니다.' })
   @ApiQuery({ name: 'query', example: 'Inception', description: '검색어' })
   @ApiQuery({ name: 'page', required: false, example: 1, description: '페이지 번호 (기본값 1)' })
   searchMovies(@Query('query') query: string, @Query('page') page?: number) {
     return this.moviesService.searchMovies(query, page);
   }
+
+
 }
