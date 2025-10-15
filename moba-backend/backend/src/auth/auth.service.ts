@@ -1,4 +1,6 @@
-import { Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { 
+  Injectable, ConflictException, UnauthorizedException, NotFoundException, BadRequestException 
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
@@ -6,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { User, UserDocument } from './schemas/user.schema';
 import { SignupRequestDto } from './dto/signup-request.dto';
 import { LoginRequestDto } from './dto/login-request.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class AuthService {
@@ -21,7 +24,6 @@ export class AuthService {
     if (exists) throw new ConflictException('이미 존재하는 아이디입니다.');
 
     const hashed = await bcrypt.hash(password, 10);
-
     const user = await this.userModel.create({
       id,
       password: hashed,
@@ -43,27 +45,37 @@ export class AuthService {
     const payload = { sub: user._id, id: user.id };
     const accessToken = this.jwtService.sign(payload);
 
-    return { accessToken, user }; // 유저 정보도 함께 반환
+    return { accessToken, user };
   }
 
   async checkId(id: string): Promise<boolean> {
     const user = await this.userModel.findOne({ id });
-    return !!user; // true면 이미 존재
+    return !!user;
   }
 
   async updateUser(id: string, dto: UpdateUserDto) {
     const user = await this.userModel.findOne({ id });
     if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
 
-    const valid = await bcrypt.compare(dto.currentPw, user.password);
-    if (!valid) throw new UnauthorizedException('현재 비밀번호가 일치하지 않습니다.');
+    // 닉네임만 수정하는 경우: 비밀번호 검증 생략
+    const isNicknameOnly = dto.nickname && !dto.newPw && !dto.currentPw;
+    if (!isNicknameOnly) {
+      // 비밀번호 변경 로직
+      if (!dto.currentPw) {
+        throw new BadRequestException('현재 비밀번호를 입력해주세요.');
+      }
 
-    if (dto.newPw) user.password = await bcrypt.hash(dto.newPw, 10);
+      const valid = await bcrypt.compare(dto.currentPw, user.password);
+      if (!valid) throw new UnauthorizedException('현재 비밀번호가 일치하지 않습니다.');
+
+      if (dto.newPw) {
+        user.password = await bcrypt.hash(dto.newPw, 10);
+      }
+    }
+
     if (dto.nickname) user.nickname = dto.nickname;
-
     await user.save();
-    return { id: user.id, nickname: user.nickname };
+
+    return user;
   }
-
-
 }
