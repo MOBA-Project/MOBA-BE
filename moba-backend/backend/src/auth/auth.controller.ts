@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Delete, UseGuards, Req } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { SignupRequestDto } from './dto/signup-request.dto';
@@ -60,6 +60,16 @@ export class AuthController {
   async checkId(@Body('id') id: string) {
     const exists = await this.authService.checkId(id);
     return { available: !exists };
+  }
+
+  @Put('update')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '회원정보 수정', description: '닉네임 또는 비밀번호를 수정합니다.' })
+  async updateUser(@Req() req, @Body() dto: UpdateUserDto) {
+    const userId = req.user.id;
+    const result = await this.authService.updateUser(userId, dto);
+    return { message: '회원정보가 수정되었습니다.', updated: result };
   }
 
 }

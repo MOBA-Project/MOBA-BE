@@ -51,4 +51,19 @@ export class AuthService {
     return !!user; // true면 이미 존재
   }
 
+  async updateUser(id: string, dto: UpdateUserDto) {
+    const user = await this.userModel.findOne({ id });
+    if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
+
+    const valid = await bcrypt.compare(dto.currentPw, user.password);
+    if (!valid) throw new UnauthorizedException('현재 비밀번호가 일치하지 않습니다.');
+
+    if (dto.newPw) user.password = await bcrypt.hash(dto.newPw, 10);
+    if (dto.nickname) user.nickname = dto.nickname;
+
+    await user.save();
+    return { id: user.id, nickname: user.nickname };
+  }
+
+
 }
