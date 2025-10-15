@@ -1,5 +1,5 @@
 import { 
-  Body, Controller, Get, Post, Put, UseGuards, Req, ConflictException, BadRequestException 
+  Body, Controller, Get, Post, Put, Delete, UseGuards, Req, ConflictException, BadRequestException 
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -44,6 +44,7 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'JWT 인증 확인', description: '로그인된 사용자 정보를 반환합니다.' })
+  @ApiResponse({ status: 200, description: '인증 성공' })
   async getProtected(@Req() req) {
     const user = req.user;
     return {
@@ -84,5 +85,17 @@ export class AuthController {
       nickname: updated.nickname,
       createdAt: updated.createdAt ?? new Date(),
     };
+  }
+
+  @Delete('delete')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '회원 탈퇴', description: '현재 로그인된 사용자의 계정을 완전히 삭제합니다.' })
+  @ApiResponse({ status: 200, description: '회원 탈퇴 성공' })
+  @ApiResponse({ status: 404, description: '사용자를 찾을 수 없습니다.' })
+  async deleteUser(@Req() req) {
+    const userId = req.user.id;
+    await this.authService.deleteUser(userId);
+    return { message: '회원 탈퇴가 완료되었습니다.' };
   }
 }

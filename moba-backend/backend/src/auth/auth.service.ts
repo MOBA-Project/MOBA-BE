@@ -57,25 +57,25 @@ export class AuthService {
     const user = await this.userModel.findOne({ id });
     if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
 
-    // 닉네임만 수정하는 경우: 비밀번호 검증 생략
     const isNicknameOnly = dto.nickname && !dto.newPw && !dto.currentPw;
     if (!isNicknameOnly) {
-      // 비밀번호 변경 로직
-      if (!dto.currentPw) {
-        throw new BadRequestException('현재 비밀번호를 입력해주세요.');
-      }
+      if (!dto.currentPw) throw new BadRequestException('현재 비밀번호를 입력해주세요.');
 
       const valid = await bcrypt.compare(dto.currentPw, user.password);
       if (!valid) throw new UnauthorizedException('현재 비밀번호가 일치하지 않습니다.');
 
-      if (dto.newPw) {
-        user.password = await bcrypt.hash(dto.newPw, 10);
-      }
+      if (dto.newPw) user.password = await bcrypt.hash(dto.newPw, 10);
     }
 
     if (dto.nickname) user.nickname = dto.nickname;
     await user.save();
 
     return user;
+  }
+
+  async deleteUser(id: string) {
+    const user = await this.userModel.findOneAndDelete({ id });
+    if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
+    return true;
   }
 }
