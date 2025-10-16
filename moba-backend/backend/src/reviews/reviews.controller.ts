@@ -95,6 +95,23 @@ export class ReviewsController {
     }));
   }
 
+  @Get(':reviewId/reaction')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '리뷰 좋아요/싫어요 상태 조회',
+    description: '현재 로그인한 사용자가 해당 리뷰에 좋아요 또는 싫어요를 눌렀는지 확인합니다. (로그인 필요)',
+  })
+  @ApiParam({ name: 'reviewId', description: '리뷰 ID' })
+  @ApiResponse({ status: 200, type: ReviewReactionStatusDto })
+  async getReactionStatus(
+    @Param('reviewId') reviewId: string,
+    @Req() req,
+  ): Promise<ReviewReactionStatusDto> {
+    const userId = req.user._id;
+    return this.reviewsService.getReactionStatus(reviewId, userId);
+  }
+
   @Get(':reviewId')
   @ApiOperation({ summary: '리뷰 상세 조회', description: '특정 리뷰의 상세 정보를 조회합니다.' })
   @ApiParam({ name: 'reviewId', description: '리뷰 ID' })
@@ -206,22 +223,5 @@ export class ReviewsController {
       createdAt: review.createdAt ?? new Date(),
       updatedAt: review.updatedAt ?? new Date(),
     };
-  }
-
-  @Get(':reviewId/reaction')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({
-    summary: '리뷰 좋아요/싫어요 상태 조회',
-    description: '현재 로그인한 사용자가 해당 리뷰에 좋아요 또는 싫어요를 눌렀는지 확인합니다. (로그인 필요)',
-  })
-  @ApiParam({ name: 'reviewId', description: '리뷰 ID' })
-  @ApiResponse({ status: 200, type: ReviewReactionStatusDto })
-  async getReactionStatus(
-    @Param('reviewId') reviewId: string,
-    @Req() req,
-  ): Promise<ReviewReactionStatusDto> {
-    const userId = req.user._id;
-    return this.reviewsService.getReactionStatus(reviewId, userId);
   }
 }
