@@ -243,18 +243,26 @@ export class ReviewsService {
     return updatedReview!;
   }
 
-  // 영화의 평균 평점 계산
+  // 영화의 평균 평점 계산 (MongoDB Aggregation 사용 - 최적화)
   async getAverageRating(movieId: number): Promise<{ averageRating: number; totalReviews: number }> {
-    const reviews = await this.reviewModel.find({ movieId });
-    const totalReviews = reviews.length;
+    const result = await this.reviewModel.aggregate([
+      { $match: { movieId } },
+      {
+        $group: {
+          _id: null,
+          averageRating: { $avg: '$rating' },
+          totalReviews: { $sum: 1 },
+        },
+      },
+    ]);
 
-    if (totalReviews === 0) {
+    if (result.length === 0) {
       return { averageRating: 0, totalReviews: 0 };
     }
 
-    const sum = reviews.reduce((acc, review) => acc + review.rating, 0);
-    const averageRating = Math.round((sum / totalReviews) * 10) / 10; // 소수점 첫째자리까지
-
-    return { averageRating, totalReviews };
+    return {
+      averageRating: Math.round(result[0].averageRating * 10) / 10, // 소수점 첫째자리까지
+      totalReviews: result[0].totalReviews,
+    };
   }
 }
