@@ -9,6 +9,8 @@ import {
   Query,
   UseGuards,
   Req,
+  ParseIntPipe,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { ReviewsService } from './reviews.service';
@@ -53,9 +55,9 @@ export class ReviewsController {
   @ApiQuery({ name: 'limit', required: false, example: 10, description: '페이지당 개수 (기본값 10)' })
   @ApiResponse({ status: 200, description: '리뷰 목록 조회 성공' })
   async getReviewsByMovie(
-    @Param('movieId') movieId: number,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Param('movieId', ParseIntPipe) movieId: number,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
   ) {
     return this.reviewsService.getReviewsByMovie(movieId, page, limit);
   }
@@ -150,11 +152,12 @@ export class ReviewsController {
   @Post(':reviewId/like')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '리뷰 좋아요', description: '리뷰에 좋아요를 누릅니다. (로그인 필요)' })
+  @ApiOperation({ summary: '리뷰 좋아요', description: '리뷰에 좋아요를 누릅니다. 이미 누른 경우 취소됩니다. (로그인 필요)' })
   @ApiParam({ name: 'reviewId', description: '리뷰 ID' })
   @ApiResponse({ status: 200, type: ReviewResponseDto })
-  async likeReview(@Param('reviewId') reviewId: string): Promise<ReviewResponseDto> {
-    const review = await this.reviewsService.likeReview(reviewId);
+  async likeReview(@Param('reviewId') reviewId: string, @Req() req): Promise<ReviewResponseDto> {
+    const userId = req.user._id;
+    const review = await this.reviewsService.likeReview(reviewId, userId);
 
     return {
       _id: review._id?.toString() ?? '',
@@ -174,11 +177,12 @@ export class ReviewsController {
   @Post(':reviewId/dislike')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '리뷰 싫어요', description: '리뷰에 싫어요를 누릅니다. (로그인 필요)' })
+  @ApiOperation({ summary: '리뷰 싫어요', description: '리뷰에 싫어요를 누릅니다. 이미 누른 경우 취소됩니다. (로그인 필요)' })
   @ApiParam({ name: 'reviewId', description: '리뷰 ID' })
   @ApiResponse({ status: 200, type: ReviewResponseDto })
-  async dislikeReview(@Param('reviewId') reviewId: string): Promise<ReviewResponseDto> {
-    const review = await this.reviewsService.dislikeReview(reviewId);
+  async dislikeReview(@Param('reviewId') reviewId: string, @Req() req): Promise<ReviewResponseDto> {
+    const userId = req.user._id;
+    const review = await this.reviewsService.dislikeReview(reviewId, userId);
 
     return {
       _id: review._id?.toString() ?? '',
@@ -199,7 +203,7 @@ export class ReviewsController {
   @ApiOperation({ summary: '영화 평점 통계', description: '영화의 평균 평점과 총 리뷰 수를 조회합니다.' })
   @ApiParam({ name: 'movieId', example: 550, description: 'TMDB 영화 ID' })
   @ApiResponse({ status: 200, description: '평균 평점과 총 리뷰 수' })
-  async getMovieStats(@Param('movieId') movieId: number) {
+  async getMovieStats(@Param('movieId', ParseIntPipe) movieId: number) {
     return this.reviewsService.getAverageRating(movieId);
   }
 }
