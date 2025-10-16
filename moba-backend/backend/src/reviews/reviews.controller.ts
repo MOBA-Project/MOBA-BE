@@ -48,6 +48,14 @@ export class ReviewsController {
     };
   }
 
+  @Get('movie/:movieId/stats')
+  @ApiOperation({ summary: '영화 평점 통계', description: '영화의 평균 평점과 총 리뷰 수를 조회합니다.' })
+  @ApiParam({ name: 'movieId', example: 550, description: 'TMDB 영화 ID' })
+  @ApiResponse({ status: 200, description: '평균 평점과 총 리뷰 수' })
+  async getMovieStats(@Param('movieId', ParseIntPipe) movieId: number) {
+    return this.reviewsService.getAverageRating(movieId);
+  }
+
   @Get('movie/:movieId')
   @ApiOperation({ summary: '영화별 리뷰 목록 조회', description: '특정 영화의 리뷰 목록을 조회합니다.' })
   @ApiParam({ name: 'movieId', example: 550, description: 'TMDB 영화 ID' })
@@ -197,13 +205,5 @@ export class ReviewsController {
       createdAt: review.createdAt ?? new Date(),
       updatedAt: review.updatedAt ?? new Date(),
     };
-  }
-
-  @Get('movie/:movieId/stats')
-  @ApiOperation({ summary: '영화 평점 통계', description: '영화의 평균 평점과 총 리뷰 수를 조회합니다.' })
-  @ApiParam({ name: 'movieId', example: 550, description: 'TMDB 영화 ID' })
-  @ApiResponse({ status: 200, description: '평균 평점과 총 리뷰 수' })
-  async getMovieStats(@Param('movieId', ParseIntPipe) movieId: number) {
-    return this.reviewsService.getAverageRating(movieId);
   }
 }
