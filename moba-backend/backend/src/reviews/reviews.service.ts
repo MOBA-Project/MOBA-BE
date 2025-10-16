@@ -135,8 +135,8 @@ export class ReviewsService {
     await this.reviewModel.findByIdAndDelete(reviewId);
   }
 
-  // 리뷰 좋아요
-  async likeReview(reviewId: string): Promise<ReviewDocument> {
+  // 리뷰 좋아요 (동시성 안전, 토글 방식)
+  async likeReview(reviewId: string, userId: Types.ObjectId): Promise<ReviewDocument> {
     if (!Types.ObjectId.isValid(reviewId)) {
       throw new BadRequestException('유효하지 않은 리뷰 ID입니다.');
     }
@@ -146,13 +146,51 @@ export class ReviewsService {
       throw new NotFoundException('리뷰를 찾을 수 없습니다.');
     }
 
-    review.likes += 1;
-    await review.save();
-    return review;
+    const userIdStr = userId.toString();
+    const isAlreadyLiked = review.likedBy.some(id => id.toString() === userIdStr);
+    const isAlreadyDisliked = review.dislikedBy.some(id => id.toString() === userIdStr);
+
+    // 이미 좋아요를 누른 경우 - 좋아요 취소
+    if (isAlreadyLiked) {
+      const updatedReview = await this.reviewModel.findByIdAndUpdate(
+        reviewId,
+        {
+          $pull: { likedBy: userId },
+          $inc: { likes: -1 },
+        },
+        { new: true },
+      );
+      return updatedReview!;
+    }
+
+    // 싫어요를 누른 상태에서 좋아요 - 싫어요 제거하고 좋아요 추가
+    if (isAlreadyDisliked) {
+      const updatedReview = await this.reviewModel.findByIdAndUpdate(
+        reviewId,
+        {
+          $pull: { dislikedBy: userId },
+          $addToSet: { likedBy: userId },
+          $inc: { dislikes: -1, likes: 1 },
+        },
+        { new: true },
+      );
+      return updatedReview!;
+    }
+
+    // 처음 좋아요 누르는 경우
+    const updatedReview = await this.reviewModel.findByIdAndUpdate(
+      reviewId,
+      {
+        $addToSet: { likedBy: userId },
+        $inc: { likes: 1 },
+      },
+      { new: true },
+    );
+    return updatedReview!;
   }
 
-  // 리뷰 싫어요
-  async dislikeReview(reviewId: string): Promise<ReviewDocument> {
+  // 리뷰 싫어요 (동시성 안전, 토글 방식)
+  async dislikeReview(reviewId: string, userId: Types.ObjectId): Promise<ReviewDocument> {
     if (!Types.ObjectId.isValid(reviewId)) {
       throw new BadRequestException('유효하지 않은 리뷰 ID입니다.');
     }
@@ -162,9 +200,47 @@ export class ReviewsService {
       throw new NotFoundException('리뷰를 찾을 수 없습니다.');
     }
 
-    review.dislikes += 1;
-    await review.save();
-    return review;
+    const userIdStr = userId.toString();
+    const isAlreadyLiked = review.likedBy.some(id => id.toString() === userIdStr);
+    const isAlreadyDisliked = review.dislikedBy.some(id => id.toString() === userIdStr);
+
+    // 이미 싫어요를 누른 경우 - 싫어요 취소
+    if (isAlreadyDisliked) {
+      const updatedReview = await this.reviewModel.findByIdAndUpdate(
+        reviewId,
+        {
+          $pull: { dislikedBy: userId },
+          $inc: { dislikes: -1 },
+        },
+        { new: true },
+      );
+      return updatedReview!;
+    }
+
+    // 좋아요를 누른 상태에서 싫어요 - 좋아요 제거하고 싫어요 추가
+    if (isAlreadyLiked) {
+      const updatedReview = await this.reviewModel.findByIdAndUpdate(
+        reviewId,
+        {
+          $pull: { likedBy: userId },
+          $addToSet: { dislikedBy: userId },
+          $inc: { likes: -1, dislikes: 1 },
+        },
+        { new: true },
+      );
+      return updatedReview!;
+    }
+
+    // 처음 싫어요 누르는 경우
+    const updatedReview = await this.reviewModel.findByIdAndUpdate(
+      reviewId,
+      {
+        $addToSet: { dislikedBy: userId },
+        $inc: { dislikes: 1 },
+      },
+      { new: true },
+    );
+    return updatedReview!;
   }
 
   // 영화의 평균 평점 계산

@@ -23,6 +23,14 @@ export class Review {
   @Prop({ default: 0 })
   dislikes: number;
 
+  // 좋아요를 누른 사용자 ID 목록
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }], default: [] })
+  likedBy: Types.ObjectId[];
+
+  // 싫어요를 누른 사용자 ID 목록
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }], default: [] })
+  dislikedBy: Types.ObjectId[];
+
   @Prop({ type: [String], default: [] })
   tags: string[];
 
