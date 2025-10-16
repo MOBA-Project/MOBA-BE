@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MoviesModule } from './movies/movies.module';
+import { BookmarksModule } from './bookmarks/bookmarks.module';
 import { AuthModule } from './auth/auth.module';
 import { ReviewsModule } from './reviews/reviews.module';
 
@@ -15,6 +16,7 @@ import { ReviewsModule } from './reviews/reviews.module';
       inject: [ConfigService],
     }),
     MoviesModule,
+    BookmarksModule,
     AuthModule,
     ReviewsModule,
   ],
