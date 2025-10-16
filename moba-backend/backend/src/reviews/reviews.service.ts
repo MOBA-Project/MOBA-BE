@@ -273,4 +273,25 @@ export class ReviewsService {
       totalReviews: result[0].totalReviews,
     };
   }
+
+  // 리뷰에 대한 현재 사용자의 좋아요/싫어요 상태 조회
+  async getReactionStatus(
+    reviewId: string,
+    userId: Types.ObjectId,
+  ): Promise<{ isLiked: boolean; isDisliked: boolean }> {
+    if (!Types.ObjectId.isValid(reviewId)) {
+      throw new BadRequestException('유효하지 않은 리뷰 ID입니다.');
+    }
+
+    const review = await this.reviewModel.findById(reviewId);
+    if (!review) {
+      throw new NotFoundException('리뷰를 찾을 수 없습니다.');
+    }
+
+    const userIdStr = userId.toString();
+    const isLiked = review.likedBy.some(id => id.toString() === userIdStr);
+    const isDisliked = review.dislikedBy.some(id => id.toString() === userIdStr);
+
+    return { isLiked, isDisliked };
+  }
 }
