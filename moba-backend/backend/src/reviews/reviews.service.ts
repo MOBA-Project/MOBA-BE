@@ -47,6 +47,14 @@ export class ReviewsService {
     page = 1,
     limit = 10,
   ): Promise<{ reviews: ReviewDocument[]; total: number; page: number; totalPages: number }> {
+    // 페이지네이션 파라미터 검증
+    if (page < 1) {
+      throw new BadRequestException('페이지 번호는 1 이상이어야 합니다.');
+    }
+    if (limit < 1 || limit > 100) {
+      throw new BadRequestException('페이지당 개수는 1~100 사이여야 합니다.');
+    }
+
     const skip = (page - 1) * limit;
 
     const [reviews, total] = await Promise.all([
