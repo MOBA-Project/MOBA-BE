@@ -11,20 +11,34 @@ export class BookmarksService {
     @InjectModel(Bookmark.name) private bookmarkModel: Model<BookmarkDocument>,
   ) {}
 
-  // 북마크 생성
-  async createBookmark(userId: string, createBookmarkDto: CreateBookmarkDto): Promise<Bookmark> {
-    try {
-      const bookmark = new this.bookmarkModel({
-        userId,
-        ...createBookmarkDto,
-      });
-      return await bookmark.save();
-    } catch (error) {
-      if (error.code === 11000) {
-        throw new ConflictException('이미 북마크한 영화입니다.');
-      }
-      throw error;
+  // 북마크 생성 (토글 방식)
+  async createBookmark(userId: string, createBookmarkDto: CreateBookmarkDto): Promise<{ bookmark?: Bookmark; deleted: boolean; message: string }> {
+    // 이미 북마크가 있는지 확인
+    const existingBookmark = await this.bookmarkModel.findOne({
+      userId,
+      movieId: createBookmarkDto.movieId,
+    }).exec();
+
+    // 이미 있으면 삭제 (토글)
+    if (existingBookmark) {
+      await this.bookmarkModel.findByIdAndDelete(existingBookmark._id).exec();
+      return {
+        deleted: true,
+        message: '북마크가 삭제되었습니다.',
+      };
     }
+
+    // 없으면 생성
+    const bookmark = new this.bookmarkModel({
+      userId,
+      ...createBookmarkDto,
+    });
+    const saved = await bookmark.save();
+    return {
+      bookmark: saved,
+      deleted: false,
+      message: '북마크가 추가되었습니다.',
+    };
   }
 
   // 사용자의 모든 북마크 조회
