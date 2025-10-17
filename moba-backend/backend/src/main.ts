@@ -9,7 +9,7 @@ async function bootstrap() {
 
   app.use(cookieParser());
   app.enableCors({
-    origin: 'http://localhost:3000',
+    origin: true, // 모든 origin 허용 (개발/테스트용)
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
     exposedHeaders: ['Set-Cookie'],
