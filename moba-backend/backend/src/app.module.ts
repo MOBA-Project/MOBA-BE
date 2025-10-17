@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { PostsModule } from './posts/posts.module';
 import { CommentsModule } from './comments/comments.module';
+import { ReviewCommentsModule } from './review-comments/review-comments.module';
 import { RecoModule } from './reco/reco.module';
 
 @Module({
@@ -24,6 +25,7 @@ import { RecoModule } from './reco/reco.module';
     ReviewsModule,
     PostsModule,
     CommentsModule,
+    ReviewCommentsModule,
     RecoModule,
   ],
 })
