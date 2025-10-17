@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, HttpException, HttpStatus } from '@nestjs/common';
 import { MoviesService } from './movies.service';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 
@@ -27,6 +27,20 @@ export class MoviesController {
   @ApiParam({ name: 'id', example: '12345', description: 'TMDB 영화 ID' })
   getMovieVideos(@Param('id') id: string) {
     return this.moviesService.getMovieVideos(id);
+  }
+
+  @Get(':id/credits')
+  @ApiOperation({ summary: '영화 출연/제작진 정보', description: '특정 영화의 출연(캐스트)과 제작진(크루) 정보를 가져옵니다.' })
+  @ApiParam({ name: 'id', example: '12345', description: 'TMDB 영화 ID' })
+  async getMovieCredits(@Param('id') id: string) {
+    try {
+      const data = await this.moviesService.getMovieCredits(id);
+      // 프론트 사양에 맞춰 그대로 TMDB 형식(id, cast[], crew[]) 반환
+      return data;
+    } catch (e) {
+      // 요구 사양: 500 Error { "error": "Failed to fetch movie credits" }
+      throw new HttpException({ error: 'Failed to fetch movie credits' }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   @Get('search')
