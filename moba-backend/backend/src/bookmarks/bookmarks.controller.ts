@@ -15,7 +15,8 @@ export class BookmarksController {
   @Post()
   @ApiOperation({ summary: '북마크 추가' })
   async create(@Req() req, @Body() dto: CreateBookmarkDto) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
+    console.log('🔍 [Bookmark Create] userId:', userId, 'user object:', req.user);
     return this.bookmarksService.createBookmark(userId, dto);
   }
 
@@ -24,7 +25,7 @@ export class BookmarksController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
   async findAll(@Req() req, @Query('page') page = 1, @Query('limit') limit = 10) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
     return this.bookmarksService.getUserBookmarks(userId, Number(page), Number(limit));
   }
 
@@ -33,42 +34,42 @@ export class BookmarksController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
   async watched(@Req() req, @Query('page') page = 1, @Query('limit') limit = 10) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
     return this.bookmarksService.getWatchedBookmarks(userId, Number(page), Number(limit));
   }
 
   @Get('tags')
   @ApiOperation({ summary: '내 태그 목록' })
   async tags(@Req() req) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
     return this.bookmarksService.getUserTags(userId);
   }
 
   @Get('status/:movieId')
   @ApiOperation({ summary: '특정 영화 북마크 상태' })
   async status(@Req() req, @Param('movieId') movieId: string) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
     return this.bookmarksService.getBookmarkStatus(userId, Number(movieId));
   }
 
   @Get(':id')
   @ApiOperation({ summary: '북마크 상세' })
   async findOne(@Req() req, @Param('id') id: string) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
     return this.bookmarksService.getBookmarkById(id, userId);
   }
 
   @Put(':id')
   @ApiOperation({ summary: '북마크 수정' })
   async update(@Req() req, @Param('id') id: string, @Body() dto: UpdateBookmarkDto) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
     return this.bookmarksService.updateBookmark(id, userId, dto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: '북마크 삭제' })
   async remove(@Req() req, @Param('id') id: string) {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id?.toString();
     await this.bookmarksService.deleteBookmark(id, userId);
     return { message: '북마크가 삭제되었습니다.' };
   }
