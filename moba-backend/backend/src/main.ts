@@ -5,6 +5,8 @@ const cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { json, urlencoded } from 'express';
+import axios from 'axios';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -12,6 +14,18 @@ async function bootstrap() {
   });
 
   const logger = new Logger('Bootstrap');
+
+  // Prevent OOM: limit inbound body size and constrain axios
+  const jsonLimit = process.env.JSON_BODY_LIMIT || '1mb';
+  const urlLimit = process.env.URLENCODED_BODY_LIMIT || '1mb';
+  app.use(json({ limit: jsonLimit }));
+  app.use(urlencoded({ extended: true, limit: urlLimit }));
+
+  axios.defaults.timeout = Number(process.env.AXIOS_TIMEOUT || 7000);
+  // @ts-ignore
+  axios.defaults.maxContentLength = Number(process.env.AXIOS_MAX_CONTENT_LENGTH || 10 * 1024 * 1024);
+  // @ts-ignore
+  axios.defaults.maxBodyLength = Number(process.env.AXIOS_MAX_BODY_LENGTH || 10 * 1024 * 1024);
 
   // 글로벌 로깅 인터셉터
   app.useGlobalInterceptors(new LoggingInterceptor());

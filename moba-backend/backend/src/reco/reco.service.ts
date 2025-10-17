@@ -62,6 +62,178 @@ export class RecoService {
     return profile;
   }
 
+  // Preview personalized recommendations from transient inputs without persisting
+  async previewRecommendations(args: { favoriteGenres: number[]; likes: number[]; dislikes: number[]; size: number }) {
+    const favoriteGenres = args.favoriteGenres || [];
+    const size = Math.max(1, Math.min(50, args.size || 20));
+
+    // Candidate pool: two pages by genre
+    const [c1, c2] = await Promise.all([
+      this.getCandidates(favoriteGenres, 1, size),
+      this.getCandidates(favoriteGenres, 2, size),
+    ]);
+    const poolMap = new Map<number, TmdbMovie>();
+    ;[...c1.items, ...c2.items].forEach((m) => poolMap.set(m.id, m));
+    const pool = Array.from(poolMap.values());
+
+    // Build transient user vectors from provided likes/dislikes
+    const likedIds = Array.from(new Set(args.likes || []));
+    const dislikedIds = Array.from(new Set(args.dislikes || []));
+    let userVec: { [term: string]: number } | null = null;
+    let userNegVec: { [term: string]: number } | null = null;
+    let userSbert: number[] | null = null;
+    let userNegSbert: number[] | null = null;
+
+    if (likedIds.length) {
+      const liked = await this.vecModel.find({ movieId: { $in: likedIds } }).lean();
+      if (liked.length) {
+        const acc = new Map<string, number>();
+        let countEmb = 0;
+        let dim = 0;
+        for (const mv of liked) {
+          for (const tw of mv.tfidf || []) acc.set(tw.term, (acc.get(tw.term) || 0) + tw.weight);
+          if (mv.sbert && mv.sbert.length) {
+            if (!userSbert) {
+              userSbert = Array(mv.sbert.length).fill(0);
+              dim = mv.sbert.length;
+            }
+            for (let i = 0; i < mv.sbert.length; i++) userSbert[i] += mv.sbert[i] || 0;
+            countEmb++;
+          }
+        }
+        const factor = 1 / liked.length;
+        userVec = {};
+        for (const [t, w] of acc.entries()) userVec[t] = w * factor;
+        if (userSbert && countEmb > 0 && dim > 0) {
+          for (let i = 0; i < dim; i++) userSbert[i] = userSbert[i] / countEmb;
+        }
+      }
+    }
+
+    if (dislikedIds.length) {
+      const negs = await this.vecModel.find({ movieId: { $in: dislikedIds } }).lean();
+      if (negs.length) {
+        const acc = new Map<string, number>();
+        let countEmb = 0;
+        let dim = 0;
+        for (const mv of negs) {
+          for (const tw of mv.tfidf || []) acc.set(tw.term, (acc.get(tw.term) || 0) + tw.weight);
+          if (mv.sbert && mv.sbert.length) {
+            if (!userNegSbert) {
+              userNegSbert = Array(mv.sbert.length).fill(0);
+              dim = mv.sbert.length;
+            }
+            for (let i = 0; i < mv.sbert.length; i++) userNegSbert[i] += mv.sbert[i] || 0;
+            countEmb++;
+          }
+        }
+        const factor = 1 / negs.length;
+        userNegVec = {};
+        for (const [t, w] of acc.entries()) userNegVec[t] = w * factor;
+        if (userNegSbert && countEmb > 0 && dim > 0) {
+          for (let i = 0; i < dim; i++) userNegSbert[i] = userNegSbert[i] / countEmb;
+        }
+      }
+    }
+
+    // Base ranking
+    let ranked = pool
+      .map((m) => {
+        const { score: baseScore, reasons } = this.scoreMovie(m, favoriteGenres);
+        return {
+          movieId: m.id,
+          title: m.title,
+          posterPath: m.poster_path,
+          score: baseScore,
+          reasons,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, size);
+
+    // TF-IDF refine if available
+    if (userVec) {
+      const poolIds = ranked.map((r) => r.movieId);
+      const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }).lean();
+      const map = new Map<number, { tfidf: { term: string; weight: number }[] }>();
+      for (const v of vecs) map.set(v.movieId, { tfidf: v.tfidf || [] });
+      const userWeights = Object.entries(userVec).map(([term, weight]) => ({ term, weight }));
+      for (const r of ranked) {
+        const mv = map.get(r.movieId);
+        if (!mv) continue;
+        const cos = cosineFromWeights(userWeights, mv.tfidf);
+        let negCos = 0;
+        if (userNegVec) {
+          const userNegWeights = Object.entries(userNegVec).map(([term, weight]) => ({ term, weight }));
+          negCos = cosineFromWeights(userNegWeights, mv.tfidf);
+        }
+        const wT = Number(process.env.BLEND_TFIDF ?? 0.2);
+        const wB = Number(process.env.BLEND_BASE ?? 0.3);
+        r.score = wT * cos + wB * r.score - 0.3 * negCos;
+        r.reasons = [...r.reasons, `tfidf:${cos.toFixed(3)}`, negCos ? `neg:${negCos.toFixed(3)}` : ''];
+      }
+      ranked.sort((a, b) => b.score - a.score);
+    }
+
+    // SBERT refine if available and enabled
+    if (userSbert) {
+      const poolIds = ranked.map((r) => r.movieId);
+      const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }, { movieId: 1, sbert: 1 }).lean();
+      const mapS = new Map<number, number[]>();
+      for (const v of vecs) mapS.set(v.movieId, (v as any).sbert || []);
+      const wS = Number(process.env.BLEND_SBERT ?? 0.5);
+      for (const r of ranked) {
+        const mvS = mapS.get(r.movieId);
+        if (!mvS?.length) continue;
+        const cosS = cosineVec(userSbert, mvS);
+        let negS = 0;
+        if (userNegSbert?.length) negS = cosineVec(userNegSbert, mvS);
+        r.score = r.score + wS * cosS - 0.2 * negS;
+        r.reasons = [...r.reasons, `sbert:${cosS.toFixed(3)}`, negS ? `sneg:${negS.toFixed(3)}` : ''];
+      }
+      ranked.sort((a, b) => b.score - a.score);
+    }
+
+    const anyPartial = (c1.meta?.partial || c2.meta?.partial) ? true : false;
+    const meta = { partial: anyPartial, source: anyPartial ? 'mixed' : 'local', nextRefreshAfter: anyPartial ? 5 : undefined };
+    return { items: ranked, meta } as any;
+  }
+
+  async commitPreferences(dto: { userId: string; favoriteGenres?: number[]; likes?: number[]; dislikes?: number[] }) {
+    const userId = dto.userId;
+    const fav = dto.favoriteGenres || [];
+    const likes = Array.from(new Set(dto.likes || []));
+    const dislikes = Array.from(new Set(dto.dislikes || []));
+
+    // Upsert profile with batch updates
+    if (fav.length) await this.upsertFavoriteGenres(userId, fav);
+    if (likes.length) await this.profileModel.findOneAndUpdate(
+      { userId },
+      { $addToSet: { likedMovieIds: { $each: likes } } },
+      { upsert: true },
+    );
+    if (dislikes.length) await this.profileModel.findOneAndUpdate(
+      { userId },
+      { $addToSet: { dislikedMovieIds: { $each: dislikes } } },
+      { upsert: true },
+    );
+
+    // Fire-and-forget: ensure vectors exist for liked/disliked movies (limited)
+    const ensureIds = Array.from(new Set([...likes, ...dislikes])).slice(0, 50);
+    if (ensureIds.length) {
+      setTimeout(async () => {
+        const chunks: number[][] = [];
+        const batch = 5; // limit concurrent inflight operations
+        for (let i = 0; i < ensureIds.length; i += batch) chunks.push(ensureIds.slice(i, i + batch));
+        for (const group of chunks) {
+          await Promise.allSettled(group.map((id) => this.ingest.syncMovieById(id)));
+        }
+      }, 0);
+    }
+
+    return { ok: true, userId };
+  }
+
   async getCandidates(genreIds: number[], page = 1, size = 20): Promise<{ items: TmdbMovie[]; meta: any }> {
     // Prefer local DB if available; fallback to TMDB discover and trigger background sync
     const query: any = genreIds.length ? { genres: { $in: genreIds } } : {};
