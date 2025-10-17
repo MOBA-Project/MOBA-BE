@@ -5,7 +5,7 @@ import axios from 'axios';
 import { UserProfile, UserProfileDocument } from './schemas/user-profile.schema';
 import { Movie, MovieDocument } from '../movies/schemas/movie.schema';
 import { MovieVector, MovieVectorDocument } from './schemas/movie-vector.schema';
-import { cosineFromWeights } from './utils/text';
+import { cosineFromWeights, cosineVec } from './utils/text';
 import { IngestService } from './ingest.service';
 import { JobsService } from './jobs.service';
 import { RecoLog, RecoLogDocument } from './schemas/reco-log.schema';
@@ -160,30 +160,58 @@ export class RecoService {
     const dislikedIds = profile?.dislikedMovieIds || [];
     let userVec: { [term: string]: number } | null = null;
     let userNegVec: { [term: string]: number } | null = null;
+    let userSbert: number[] | null = null;
+    let userNegSbert: number[] | null = null;
     if (likedIds.length) {
       const liked = await this.vecModel.find({ movieId: { $in: likedIds } }).lean();
       if (liked.length) {
         const acc = new Map<string, number>();
+        let countEmb = 0;
+        let dim = 0;
         for (const mv of liked) {
           for (const tw of mv.tfidf || []) {
             acc.set(tw.term, (acc.get(tw.term) || 0) + tw.weight);
+          }
+          if (mv.sbert && mv.sbert.length) {
+            if (!userSbert) {
+              userSbert = Array(mv.sbert.length).fill(0);
+              dim = mv.sbert.length;
+            }
+            for (let i = 0; i < mv.sbert.length; i++) userSbert[i] += mv.sbert[i] || 0;
+            countEmb++;
           }
         }
         const factor = 1 / liked.length;
         userVec = {};
         for (const [t, w] of acc.entries()) userVec[t] = w * factor;
+        if (userSbert && countEmb > 0 && dim > 0) {
+          for (let i = 0; i < dim; i++) userSbert[i] = userSbert[i] / countEmb;
+        }
       }
     }
     if (dislikedIds.length) {
       const negs = await this.vecModel.find({ movieId: { $in: dislikedIds } }).lean();
       if (negs.length) {
         const acc = new Map<string, number>();
+        let countEmb = 0;
+        let dim = 0;
         for (const mv of negs) {
           for (const tw of mv.tfidf || []) acc.set(tw.term, (acc.get(tw.term) || 0) + tw.weight);
+          if (mv.sbert && mv.sbert.length) {
+            if (!userNegSbert) {
+              userNegSbert = Array(mv.sbert.length).fill(0);
+              dim = mv.sbert.length;
+            }
+            for (let i = 0; i < mv.sbert.length; i++) userNegSbert[i] += mv.sbert[i] || 0;
+            countEmb++;
+          }
         }
         const factor = 1 / negs.length;
         userNegVec = {};
         for (const [t, w] of acc.entries()) userNegVec[t] = w * factor;
+        if (userNegSbert && countEmb > 0 && dim > 0) {
+          for (let i = 0; i < dim; i++) userNegSbert[i] = userNegSbert[i] / countEmb;
+        }
       }
     }
 
@@ -224,9 +252,43 @@ export class RecoService {
           const userNegWeights = Object.entries(userNegVec).map(([term, weight]) => ({ term, weight }));
           negCos = cosineFromWeights(userNegWeights, mv.tfidf);
         }
-        // Blend cosine with base score; penalize similarity to negatives
-        r.score = 0.5 * cos + 0.4 * r.score - 0.3 * negCos;
-        r.reasons = [...r.reasons, `cos:${cos.toFixed(3)}`, negCos ? `neg:${negCos.toFixed(3)}` : ''];
+        // SBERT cosine if available
+        let cosSbert = 0;
+        let negSbert = 0;
+        if (userSbert && (mv as any).tfidf !== undefined) {
+          // Fetch movie sbert vector separately if needed
+        }
+        // try get sbert vec via another query result
+        // Since map holds only tfidf, refetching already happened above; we don't have sbert here.
+        // Adjust: build a quick lookup for sbert too
+        // We'll temporarily ignore and compute in a separate batch below
+
+        // Blend TF-IDF cosine with base score; penalize negatives
+        const wT = Number(process.env.BLEND_TFIDF ?? 0.2);
+        const wB = Number(process.env.BLEND_BASE ?? 0.3);
+        const wS = Number(process.env.BLEND_SBERT ?? 0.5);
+        r.score = wT * cos + wB * r.score - 0.3 * negCos + (cosSbert ? wS * cosSbert : 0);
+        r.reasons = [...r.reasons, `tfidf:${cos.toFixed(3)}`, negCos ? `neg:${negCos.toFixed(3)}` : ''];
+      }
+      ranked.sort((a, b) => b.score - a.score);
+    }
+
+    // If SBERT user vector exists, refine with SBERT cosine in batch
+    if (userSbert) {
+      const poolIds = ranked.map((r) => r.movieId);
+      const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }, { movieId: 1, sbert: 1 }).lean();
+      const mapS = new Map<number, number[]>();
+      for (const v of vecs) mapS.set(v.movieId, (v as any).sbert || []);
+      const wS = Number(process.env.BLEND_SBERT ?? 0.5);
+      for (const r of ranked) {
+        const mvS = mapS.get(r.movieId);
+        if (!mvS?.length) continue;
+        const cosS = cosineVec(userSbert, mvS);
+        // negative SBERT penalty
+        let negS = 0;
+        if (userNegSbert?.length) negS = cosineVec(userNegSbert, mvS);
+        r.score = r.score + wS * cosS - 0.2 * negS;
+        r.reasons = [...r.reasons, `sbert:${cosS.toFixed(3)}`, negS ? `sneg:${negS.toFixed(3)}` : ''];
       }
       ranked.sort((a, b) => b.score - a.score);
     }

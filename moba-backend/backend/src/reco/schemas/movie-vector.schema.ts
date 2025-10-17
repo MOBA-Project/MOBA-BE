@@ -17,7 +17,10 @@ export class MovieVector {
   // Top-N TF-IDF terms
   @Prop({ type: [{ term: String, weight: Number }], default: [] })
   tfidf: TermWeight[];
+
+  // Optional SBERT embedding (mean pooled, L2-normalized)
+  @Prop({ type: [Number], default: [] })
+  sbert: number[];
 }
 
 export const MovieVectorSchema = SchemaFactory.createForClass(MovieVector);
-

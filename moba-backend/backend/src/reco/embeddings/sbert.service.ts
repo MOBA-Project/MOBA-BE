@@ -13,8 +13,9 @@ export class SbertService {
       // Model: all-MiniLM-L6-v2 (384d)
       // @ts-ignore
       const transformers = await import('@xenova/transformers');
+      const modelId = process.env.SBERT_MODEL || 'Xenova/all-MiniLM-L6-v2';
       // @ts-ignore
-      this.pipeline = await transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+      this.pipeline = await transformers.pipeline('feature-extraction', modelId);
       this.modelLoaded = true;
     } catch (e: any) {
       this.logger.warn(`SBERT model load failed: ${e?.message}`);
@@ -41,4 +42,3 @@ export class SbertService {
     return [args.overview || '', kw, people].filter(Boolean).join(' \n ');
   }
 }
-

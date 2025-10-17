@@ -66,3 +66,18 @@ export function cosineFromWeights(a: TermWeight[], b: TermWeight[]): number {
   return denom > 0 ? dot / denom : 0;
 }
 
+export function cosineVec(a: number[] | undefined, b: number[] | undefined): number {
+  if (!a?.length || !b?.length || a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom > 0 ? dot / denom : 0;
+}

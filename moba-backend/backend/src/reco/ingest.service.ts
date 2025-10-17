@@ -6,6 +6,7 @@ import { Movie, MovieDocument } from '../movies/schemas/movie.schema';
 import { MovieVector, MovieVectorDocument } from './schemas/movie-vector.schema';
 import { VectorMeta, VectorMetaDocument, VectorTerm, VectorTermDocument } from './schemas/vector-term.schema';
 import { buildMovieTerms, tfidfWeights } from './utils/text';
+import { SbertService } from './embeddings/sbert.service';
 
 @Injectable()
 export class IngestService {
@@ -18,6 +19,7 @@ export class IngestService {
     @InjectModel(MovieVector.name) private readonly vecModel: Model<MovieVectorDocument>,
     @InjectModel(VectorTerm.name) private readonly termModel: Model<VectorTermDocument>,
     @InjectModel(VectorMeta.name) private readonly metaModel: Model<VectorMetaDocument>,
+    private readonly sbert: SbertService,
   ) {}
 
   private async getDocCount(): Promise<number> {
@@ -135,13 +137,32 @@ export class IngestService {
     }
 
     const weights = tfidfWeights(newTerms, lookup, docCount, 50);
+
+    // Optional SBERT embedding
+    let sbertVec: number[] = [];
+    const useSbert = (process.env.USE_SBERT || 'false').toLowerCase() === 'true';
+    if (useSbert) {
+      try {
+        const text = this.sbert.buildMovieText({
+          overview: movie.overview || '',
+          keywords: movie.keywords,
+          cast: movie.cast,
+          director: movie.director,
+        });
+        const [emb] = await this.sbert.embed([text]);
+        sbertVec = Array.isArray(emb) ? emb : [];
+      } catch (e) {
+        this.logger.warn(`SBERT embed failed for movie ${movie.movieId}`);
+        sbertVec = [];
+      }
+    }
+
     await this.vecModel.findOneAndUpdate(
       { movieId: movie.movieId },
-      { $set: { movieId: movie.movieId, genres: movie.genres, tfidf: weights } },
+      { $set: { movieId: movie.movieId, genres: movie.genres, tfidf: weights, sbert: sbertVec } },
       { upsert: true },
     );
 
     return movie;
   }
 }
-
