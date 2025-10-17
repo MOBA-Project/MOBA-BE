@@ -151,17 +151,17 @@ export class RecoService {
       .sort((a, b) => b.score - a.score)
       .slice(0, size);
 
-    // TF-IDF refine if available
-    if (userVec) {
+    // TF-IDF refine if available (apply negative even without positives)
+    if (userVec || userNegVec) {
       const poolIds = ranked.map((r) => r.movieId);
       const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }).lean();
       const map = new Map<number, { tfidf: { term: string; weight: number }[] }>();
       for (const v of vecs) map.set(v.movieId, { tfidf: v.tfidf || [] });
-      const userWeights = Object.entries(userVec).map(([term, weight]) => ({ term, weight }));
+      const userWeights = userVec ? Object.entries(userVec).map(([term, weight]) => ({ term, weight })) : [];
       for (const r of ranked) {
         const mv = map.get(r.movieId);
         if (!mv) continue;
-        const cos = cosineFromWeights(userWeights, mv.tfidf);
+        const cos = userVec ? cosineFromWeights(userWeights, mv.tfidf) : 0;
         let negCos = 0;
         if (userNegVec) {
           const userNegWeights = Object.entries(userNegVec).map(([term, weight]) => ({ term, weight }));
@@ -169,8 +169,9 @@ export class RecoService {
         }
         const wT = Number(process.env.BLEND_TFIDF ?? 0.2);
         const wB = Number(process.env.BLEND_BASE ?? 0.3);
-        r.score = wT * cos + wB * r.score - 0.3 * negCos;
-        r.reasons = [...r.reasons, `tfidf:${cos.toFixed(3)}`, negCos ? `neg:${negCos.toFixed(3)}` : ''];
+        const wTN = Number(process.env.BLEND_TFIDF_NEG ?? 0.6);
+        r.score = wB * r.score + wT * cos - wTN * negCos;
+        r.reasons = [...r.reasons, `tfidf:${cos.toFixed(3)}`, userNegVec ? `neg:${negCos.toFixed(3)}` : ''];
       }
       ranked.sort((a, b) => b.score - a.score);
     }
@@ -408,18 +409,18 @@ export class RecoService {
       .sort((a, b) => b.score - a.score)
       .slice(0, size);
 
-    // If user vector exists, refine with cosine similarity batch
-    if (userVec) {
+    // If user or negative vector exists, refine with cosine similarity batch
+    if (userVec || userNegVec) {
       const poolIds = ranked.map((r) => r.movieId);
       const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }).lean();
       const map = new Map<number, { tfidf: { term: string; weight: number }[] }>();
       for (const v of vecs) map.set(v.movieId, { tfidf: v.tfidf || [] });
 
-      const userWeights = Object.entries(userVec).map(([term, weight]) => ({ term, weight }));
+      const userWeights = userVec ? Object.entries(userVec).map(([term, weight]) => ({ term, weight })) : [];
       for (const r of ranked) {
         const mv = map.get(r.movieId);
         if (!mv) continue;
-        const cos = cosineFromWeights(userWeights, mv.tfidf);
+        const cos = userVec ? cosineFromWeights(userWeights, mv.tfidf) : 0;
         let negCos = 0;
         if (userNegVec) {
           const userNegWeights = Object.entries(userNegVec).map(([term, weight]) => ({ term, weight }));
@@ -440,28 +441,30 @@ export class RecoService {
         const wT = Number(process.env.BLEND_TFIDF ?? 0.2);
         const wB = Number(process.env.BLEND_BASE ?? 0.3);
         const wS = Number(process.env.BLEND_SBERT ?? 0.5);
-        r.score = wT * cos + wB * r.score - 0.3 * negCos + (cosSbert ? wS * cosSbert : 0);
-        r.reasons = [...r.reasons, `tfidf:${cos.toFixed(3)}`, negCos ? `neg:${negCos.toFixed(3)}` : ''];
+        const wTN = Number(process.env.BLEND_TFIDF_NEG ?? 0.6);
+        r.score = wB * r.score + wT * cos - wTN * negCos + (cosSbert ? wS * cosSbert : 0);
+        r.reasons = [...r.reasons, `tfidf:${cos.toFixed(3)}`, userNegVec ? `neg:${negCos.toFixed(3)}` : ''];
       }
       ranked.sort((a, b) => b.score - a.score);
     }
 
-    // If SBERT user vector exists, refine with SBERT cosine in batch
-    if (userSbert) {
+    // If SBERT user or negative vector exists, refine with SBERT cosine in batch
+    if (userSbert || (userNegSbert && userNegSbert.length)) {
       const poolIds = ranked.map((r) => r.movieId);
       const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }, { movieId: 1, sbert: 1 }).lean();
       const mapS = new Map<number, number[]>();
       for (const v of vecs) mapS.set(v.movieId, (v as any).sbert || []);
       const wS = Number(process.env.BLEND_SBERT ?? 0.5);
+      const wSN = Number(process.env.BLEND_SBERT_NEG ?? 0.4);
       for (const r of ranked) {
         const mvS = mapS.get(r.movieId);
         if (!mvS?.length) continue;
-        const cosS = cosineVec(userSbert, mvS);
+        const cosS = userSbert ? cosineVec(userSbert, mvS) : 0;
         // negative SBERT penalty
         let negS = 0;
         if (userNegSbert?.length) negS = cosineVec(userNegSbert, mvS);
-        r.score = r.score + wS * cosS - 0.2 * negS;
-        r.reasons = [...r.reasons, `sbert:${cosS.toFixed(3)}`, negS ? `sneg:${negS.toFixed(3)}` : ''];
+        r.score = r.score + wS * cosS - wSN * negS;
+        r.reasons = [...r.reasons, `sbert:${cosS.toFixed(3)}`, userNegSbert ? `sneg:${negS.toFixed(3)}` : ''];
       }
       ranked.sort((a, b) => b.score - a.score);
     }
