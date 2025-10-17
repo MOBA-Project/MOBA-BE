@@ -58,4 +58,10 @@ export class MoviesService {
 
     return data;
   }
+
+  async getMovieCredits(id: string) {
+    const url = `${this.BASE_URL}/movie/${id}/credits?language=ko-KR&api_key=${this.API_KEY}`;
+    const { data } = await axios.get(url);
+    return data;
+  }
 }
