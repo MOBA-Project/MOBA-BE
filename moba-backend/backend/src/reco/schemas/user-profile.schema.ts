@@ -23,7 +23,10 @@ export class UserProfile {
   // 사용자가 좋아요/선택한 영화 ID 보관(간단 캐시)
   @Prop({ type: [Number], default: [] })
   likedMovieIds: number[];
+
+  // 사용자가 싫어요/스킵한 영화 ID (선택)
+  @Prop({ type: [Number], default: [] })
+  dislikedMovieIds: number[];
 }
 
 export const UserProfileSchema = SchemaFactory.createForClass(UserProfile);
-
