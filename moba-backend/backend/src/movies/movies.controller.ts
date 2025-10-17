@@ -15,11 +15,12 @@ export class MoviesController {
     return this.moviesService.getMovies(page, genre);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: '영화 상세 정보', description: '특정 영화의 상세 정보를 가져옵니다.' })
-  @ApiParam({ name: 'id', example: '12345', description: 'TMDB 영화 ID' })
-  getMovieDetail(@Param('id') id: string) {
-    return this.moviesService.getMovieDetail(id);
+  @Get('search')
+  @ApiOperation({ summary: '영화 검색', description: '검색어를 기준으로 영화 목록을 검색합니다.' })
+  @ApiQuery({ name: 'query', example: 'Inception', description: '검색어' })
+  @ApiQuery({ name: 'page', required: false, example: 1, description: '페이지 번호 (기본값 1)' })
+  searchMovies(@Query('query') query: string, @Query('page') page?: number) {
+    return this.moviesService.searchMovies(query, page);
   }
 
   @Get(':id/videos')
@@ -43,13 +44,10 @@ export class MoviesController {
     }
   }
 
-  @Get('search')
-  @ApiOperation({ summary: '영화 검색', description: '검색어를 기준으로 영화 목록을 검색합니다.' })
-  @ApiQuery({ name: 'query', example: 'Inception', description: '검색어' })
-  @ApiQuery({ name: 'page', required: false, example: 1, description: '페이지 번호 (기본값 1)' })
-  searchMovies(@Query('query') query: string, @Query('page') page?: number) {
-    return this.moviesService.searchMovies(query, page);
+  @Get(':id')
+  @ApiOperation({ summary: '영화 상세 정보', description: '특정 영화의 상세 정보를 가져옵니다.' })
+  @ApiParam({ name: 'id', example: '12345', description: 'TMDB 영화 ID' })
+  getMovieDetail(@Param('id') id: string) {
+    return this.moviesService.getMovieDetail(id);
   }
-
-
 }
