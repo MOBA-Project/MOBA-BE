@@ -20,7 +20,7 @@ import { ReviewResponseDto } from './dto/review-response.dto';
 import { ReviewReactionStatusDto } from './dto/review-reaction-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@ApiTags('Reviews')
+@ApiTags('영화 한줄평 (Reviews)')
 @Controller('reviews')
 export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
