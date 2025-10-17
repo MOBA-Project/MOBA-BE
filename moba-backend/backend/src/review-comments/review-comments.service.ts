@@ -103,7 +103,7 @@ export class ReviewCommentsService {
     }
 
     // 정렬 조건
-    const sortOption = sort === 'likes' ? { likes: -1, createdAt: -1 } : { createdAt: -1 };
+    const sortOption: any = sort === 'likes' ? { likes: -1, createdAt: -1 } : { createdAt: -1 };
 
     const [items, total] = await Promise.all([
       this.reviewCommentModel.find(filter).sort(sortOption).skip(skip).limit(limit).exec(),
