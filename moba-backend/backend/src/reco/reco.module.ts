@@ -5,6 +5,7 @@ import { RecoService } from './reco.service';
 import { UserProfile, UserProfileSchema } from './schemas/user-profile.schema';
 import { IngestController } from './ingest.controller';
 import { IngestService } from './ingest.service';
+import { JobsService } from './jobs.service';
 import { Movie, MovieSchema } from '../movies/schemas/movie.schema';
 import { MovieVector, MovieVectorSchema } from './schemas/movie-vector.schema';
 import { VectorMeta, VectorMetaSchema, VectorTerm, VectorTermSchema } from './schemas/vector-term.schema';
@@ -20,6 +21,6 @@ import { VectorMeta, VectorMetaSchema, VectorTerm, VectorTermSchema } from './sc
     ]),
   ],
   controllers: [RecoController, IngestController],
-  providers: [RecoService, IngestService],
+  providers: [RecoService, IngestService, JobsService],
 })
 export class RecoModule {}
