@@ -4,6 +4,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 const cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -11,6 +12,9 @@ async function bootstrap() {
   });
 
   const logger = new Logger('Bootstrap');
+
+  // 글로벌 로깅 인터셉터
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
   // 글로벌 Validation Pipe 설정
   app.useGlobalPipes(
