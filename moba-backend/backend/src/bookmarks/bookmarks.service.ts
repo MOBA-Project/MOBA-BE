@@ -13,15 +13,20 @@ export class BookmarksService {
 
   // 북마크 생성 (토글 방식)
   async createBookmark(userId: string, createBookmarkDto: CreateBookmarkDto): Promise<{ bookmark?: Bookmark; deleted: boolean; message: string }> {
+    console.log('🔍 [Service] createBookmark called - userId:', userId, 'movieId:', createBookmarkDto.movieId);
+
     // 이미 북마크가 있는지 확인
     const existingBookmark = await this.bookmarkModel.findOne({
       userId,
       movieId: createBookmarkDto.movieId,
     }).exec();
 
+    console.log('🔍 [Service] existingBookmark:', existingBookmark);
+
     // 이미 있으면 삭제 (토글)
     if (existingBookmark) {
       await this.bookmarkModel.findByIdAndDelete(existingBookmark._id).exec();
+      console.log('✅ [Service] Bookmark DELETED - movieId:', createBookmarkDto.movieId);
       return {
         deleted: true,
         message: '북마크가 삭제되었습니다.',
@@ -34,6 +39,8 @@ export class BookmarksService {
       ...createBookmarkDto,
     });
     const saved = await bookmark.save();
+    console.log('✅ [Service] Bookmark CREATED - id:', saved._id, 'movieId:', createBookmarkDto.movieId);
+
     return {
       bookmark: saved,
       deleted: false,
@@ -92,6 +99,7 @@ export class BookmarksService {
   // 특정 영화의 북마크 상태 확인
   async getBookmarkStatus(userId: string, movieId: number): Promise<{ isBookmarked: boolean, bookmark?: Bookmark }> {
     const bookmark = await this.bookmarkModel.findOne({ userId, movieId }).exec();
+    console.log('🔍 [Service] getBookmarkStatus - userId:', userId, 'movieId:', movieId, 'found:', !!bookmark);
     return {
       isBookmarked: !!bookmark,
       bookmark: bookmark || undefined
