@@ -6,6 +6,8 @@ import { UserProfile, UserProfileDocument } from './schemas/user-profile.schema'
 import { Movie, MovieDocument } from '../movies/schemas/movie.schema';
 import { MovieVector, MovieVectorDocument } from './schemas/movie-vector.schema';
 import { cosineFromWeights } from './utils/text';
+import { IngestService } from './ingest.service';
+import { JobsService } from './jobs.service';
 
 type TmdbMovie = {
   id: number;
@@ -31,6 +33,8 @@ export class RecoService {
     private readonly movieModel: Model<MovieDocument>,
     @InjectModel(MovieVector.name)
     private readonly vecModel: Model<MovieVectorDocument>,
+    private readonly ingest: IngestService,
+    private readonly jobs: JobsService,
   ) {}
 
   async upsertFavoriteGenres(userId: string, favoriteGenres: number[]) {
@@ -51,8 +55,8 @@ export class RecoService {
     return profile;
   }
 
-  async getCandidates(genreIds: number[], page = 1, size = 20) {
-    // Prefer local DB if available; fallback to TMDB discover
+  async getCandidates(genreIds: number[], page = 1, size = 20): Promise<{ items: TmdbMovie[]; meta: any }> {
+    // Prefer local DB if available; fallback to TMDB discover and trigger background sync
     const query: any = genreIds.length ? { genres: { $in: genreIds } } : {};
     const local = await this.movieModel
       .find(query)
@@ -61,7 +65,7 @@ export class RecoService {
       .limit(size)
       .lean();
     if (local?.length) {
-      return local.map((m) => ({
+      const items = local.map((m) => ({
         id: m.movieId,
         title: m.title,
         genre_ids: m.genres,
@@ -71,13 +75,30 @@ export class RecoService {
         release_date: m.releaseDate,
         poster_path: m.posterPath,
       }));
+      return { items, meta: { source: 'local', partial: false } };
     }
     try {
       const withGenres = genreIds.length ? `&with_genres=${genreIds.join(',')}` : '';
       const url = `${this.BASE_URL}/discover/movie?api_key=${this.API_KEY}&language=ko-KR&region=KR&page=${page}${withGenres}`;
       const { data } = await axios.get(url);
-      const results: TmdbMovie[] = data.results || [];
-      return results.slice(0, size);
+      const results: TmdbMovie[] = (data.results || []).slice(0, size);
+
+      // Trigger background sync for fetched movies
+      const job = this.jobs.create('fallback_discover_sync');
+      setTimeout(async () => {
+        try {
+          this.jobs.setRunning(job.id);
+          for (const r of results) {
+            // fire and forget per movie
+            this.ingest.syncMovieById(r.id).catch(() => void 0);
+          }
+          this.jobs.complete(job.id);
+        } catch (e: any) {
+          this.jobs.fail(job.id, e?.message || 'sync failed');
+        }
+      }, 0);
+
+      return { items: results, meta: { source: 'fallback', partial: true, jobId: job.id, nextRefreshAfter: 5 } };
     } catch (e) {
       throw new HttpException('TMDB discover failed', HttpStatus.BAD_GATEWAY);
     }
@@ -109,12 +130,12 @@ export class RecoService {
     const favoriteGenres = profile?.favoriteGenres || [];
 
     // Candidate pool: local DB by genre; fallback to TMDB
-    const [p1, p2] = await Promise.all([
+    const [c1, c2] = await Promise.all([
       this.getCandidates(favoriteGenres, 1, size),
       this.getCandidates(favoriteGenres, 2, size),
     ]);
     const poolMap = new Map<number, TmdbMovie>();
-    ;[...p1, ...p2].forEach((m) => poolMap.set(m.id, m));
+    ;[...c1.items, ...c2.items].forEach((m) => poolMap.set(m.id, m));
     const pool = Array.from(poolMap.values());
 
     // Build user vector from liked movies if available
@@ -174,6 +195,14 @@ export class RecoService {
       ranked.sort((a, b) => b.score - a.score);
     }
 
-    return ranked;
+    const anyPartial = (c1.meta?.partial || c2.meta?.partial) ? true : false;
+    const jobIds = [c1.meta?.jobId, c2.meta?.jobId].filter(Boolean);
+    const meta = {
+      partial: anyPartial,
+      jobIds,
+      source: anyPartial ? 'mixed' : 'local',
+      nextRefreshAfter: anyPartial ? 5 : undefined,
+    };
+    return { items: ranked, meta } as any;
   }
 }
