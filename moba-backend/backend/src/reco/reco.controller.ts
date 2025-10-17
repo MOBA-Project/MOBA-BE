@@ -4,6 +4,7 @@ import { RecoService } from './reco.service';
 import { ProfileGenresDto } from './dto/profile-genres.dto';
 import { ProfileLikesDto } from './dto/profile-likes.dto';
 import { JobsService } from './jobs.service';
+import { FeedbackDto } from './dto/feedback.dto';
 
 @ApiTags('Recommendations')
 @Controller('v1')
@@ -53,5 +54,11 @@ export class RecoController {
     const job = this.jobs.get(id);
     if (!job) return { status: 'not_found' };
     return { id: job.id, status: job.status, updatedAt: job.updatedAt };
+  }
+
+  @Post('reco/feedback')
+  @ApiOperation({ summary: '추천 피드백(긍/부정) 저장' })
+  async feedback(@Body() dto: FeedbackDto) {
+    return this.recoService.addFeedback(dto);
   }
 }
