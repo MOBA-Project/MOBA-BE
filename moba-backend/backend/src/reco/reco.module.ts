@@ -9,6 +9,8 @@ import { JobsService } from './jobs.service';
 import { Movie, MovieSchema } from '../movies/schemas/movie.schema';
 import { MovieVector, MovieVectorSchema } from './schemas/movie-vector.schema';
 import { VectorMeta, VectorMetaSchema, VectorTerm, VectorTermSchema } from './schemas/vector-term.schema';
+import { RecoLog, RecoLogSchema } from './schemas/reco-log.schema';
+import { UserFeedback, UserFeedbackSchema } from './schemas/user-feedback.schema';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { VectorMeta, VectorMetaSchema, VectorTerm, VectorTermSchema } from './sc
       { name: MovieVector.name, schema: MovieVectorSchema },
       { name: VectorTerm.name, schema: VectorTermSchema },
       { name: VectorMeta.name, schema: VectorMetaSchema },
+      { name: RecoLog.name, schema: RecoLogSchema },
+      { name: UserFeedback.name, schema: UserFeedbackSchema },
     ]),
   ],
   controllers: [RecoController, IngestController],

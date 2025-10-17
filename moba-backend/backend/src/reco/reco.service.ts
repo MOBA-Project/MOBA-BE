@@ -8,6 +8,9 @@ import { MovieVector, MovieVectorDocument } from './schemas/movie-vector.schema'
 import { cosineFromWeights } from './utils/text';
 import { IngestService } from './ingest.service';
 import { JobsService } from './jobs.service';
+import { RecoLog, RecoLogDocument } from './schemas/reco-log.schema';
+import { UserFeedback, UserFeedbackDocument } from './schemas/user-feedback.schema';
+import { FeedbackDto } from './dto/feedback.dto';
 
 type TmdbMovie = {
   id: number;
@@ -33,6 +36,10 @@ export class RecoService {
     private readonly movieModel: Model<MovieDocument>,
     @InjectModel(MovieVector.name)
     private readonly vecModel: Model<MovieVectorDocument>,
+    @InjectModel(RecoLog.name)
+    private readonly logModel: Model<RecoLogDocument>,
+    @InjectModel(UserFeedback.name)
+    private readonly feedbackModel: Model<UserFeedbackDocument>,
     private readonly ingest: IngestService,
     private readonly jobs: JobsService,
   ) {}
@@ -107,7 +114,7 @@ export class RecoService {
   private scoreMovie(
     movie: TmdbMovie,
     favoriteGenres: number[],
-    weights = { alpha: 0.7, beta: 0.15, gamma: 0.15 },
+    weights = { alpha: Number(process.env.RECO_ALPHA ?? 0.6), beta: Number(process.env.RECO_BETA ?? 0.2), gamma: Number(process.env.RECO_GAMMA ?? 0.15), delta: Number(process.env.RECO_DELTA ?? 0.05) },
   ) {
     const movieGenres = movie.genre_ids || (movie.genres ? movie.genres.map((g) => g.id) : []);
     const matchCount = movieGenres.filter((g) => favoriteGenres.includes(g)).length;
@@ -116,12 +123,22 @@ export class RecoService {
     // popularity: 대략 0~100+ 범위 -> 0~1 정규화(간단 min-max 근사)
     const pop = Math.min(1, Math.max(0, (movie.popularity || 0) / 100));
     const vote = Math.min(1, Math.max(0, (movie.vote_average || 0) / 10));
+    // recency: 최근일수/연차 감쇠 기반 점수
+    let rec = 0;
+    const rd = movie.release_date ? new Date(movie.release_date) : null;
+    if (rd && !isNaN(rd.getTime())) {
+      const ageDays = (Date.now() - rd.getTime()) / (1000 * 60 * 60 * 24);
+      const ageYears = ageDays / 365;
+      // 0년에 가깝게 1, 오래될수록 0으로 감쇠
+      rec = Math.exp(-ageYears / 8); // 8년 반감 정도
+    }
 
-    const score = weights.alpha * sim + weights.beta * pop + weights.gamma * vote;
+    const score = weights.alpha * sim + weights.beta * pop + weights.gamma * vote + weights.delta * rec;
     const reasons: string[] = [];
     if (matchCount > 0) reasons.push(`matchedGenres:${matchCount}`);
     if (movie.popularity) reasons.push(`popularity:${movie.popularity.toFixed(1)}`);
     if (movie.vote_average) reasons.push(`vote:${movie.vote_average.toFixed(1)}`);
+    if (rec) reasons.push(`recency:${rec.toFixed(2)}`);
     return { score, reasons };
   }
 
@@ -138,9 +155,11 @@ export class RecoService {
     ;[...c1.items, ...c2.items].forEach((m) => poolMap.set(m.id, m));
     const pool = Array.from(poolMap.values());
 
-    // Build user vector from liked movies if available
+    // Build user vectors from feedback if available (positive/negative)
     const likedIds = profile?.likedMovieIds || [];
+    const dislikedIds = profile?.dislikedMovieIds || [];
     let userVec: { [term: string]: number } | null = null;
+    let userNegVec: { [term: string]: number } | null = null;
     if (likedIds.length) {
       const liked = await this.vecModel.find({ movieId: { $in: likedIds } }).lean();
       if (liked.length) {
@@ -155,8 +174,20 @@ export class RecoService {
         for (const [t, w] of acc.entries()) userVec[t] = w * factor;
       }
     }
+    if (dislikedIds.length) {
+      const negs = await this.vecModel.find({ movieId: { $in: dislikedIds } }).lean();
+      if (negs.length) {
+        const acc = new Map<string, number>();
+        for (const mv of negs) {
+          for (const tw of mv.tfidf || []) acc.set(tw.term, (acc.get(tw.term) || 0) + tw.weight);
+        }
+        const factor = 1 / negs.length;
+        userNegVec = {};
+        for (const [t, w] of acc.entries()) userNegVec[t] = w * factor;
+      }
+    }
 
-    const ranked = pool
+    let ranked = pool
       .map((m) => {
         const { score: baseScore, reasons } = this.scoreMovie(m, favoriteGenres);
         let finalScore = baseScore;
@@ -188,12 +219,42 @@ export class RecoService {
         const mv = map.get(r.movieId);
         if (!mv) continue;
         const cos = cosineFromWeights(userWeights, mv.tfidf);
-        // Blend cosine with base score
-        r.score = 0.6 * cos + 0.4 * r.score;
-        r.reasons = [...r.reasons, `cos:${cos.toFixed(3)}`];
+        let negCos = 0;
+        if (userNegVec) {
+          const userNegWeights = Object.entries(userNegVec).map(([term, weight]) => ({ term, weight }));
+          negCos = cosineFromWeights(userNegWeights, mv.tfidf);
+        }
+        // Blend cosine with base score; penalize similarity to negatives
+        r.score = 0.5 * cos + 0.4 * r.score - 0.3 * negCos;
+        r.reasons = [...r.reasons, `cos:${cos.toFixed(3)}`, negCos ? `neg:${negCos.toFixed(3)}` : ''];
       }
       ranked.sort((a, b) => b.score - a.score);
     }
+
+    // Diversity (epsilon-greedy)
+    const eps = Number(process.env.RECO_EPSILON ?? 0.05);
+    if (eps > 0 && ranked.length > 3) {
+      const topK = Math.min(ranked.length, size);
+      for (let i = 0; i < topK; i++) {
+        if (Math.random() < eps) {
+          const j = i + 1 + Math.floor(Math.random() * Math.max(1, topK - i - 1));
+          if (ranked[j]) {
+            const tmp = ranked[i];
+            ranked[i] = ranked[j];
+            ranked[j] = tmp;
+            ranked[i].reasons = [...(ranked[i].reasons || []), 'explore'];
+          }
+        }
+      }
+    }
+
+    // Log exposures
+    try {
+      const bulk = ranked.map((r, idx) => ({
+        insertOne: { document: { userId, movieId: r.movieId, score: r.score, position: idx, interacted: false } },
+      }));
+      if (bulk.length) await this.logModel.bulkWrite(bulk, { ordered: false });
+    } catch {}
 
     const anyPartial = (c1.meta?.partial || c2.meta?.partial) ? true : false;
     const jobIds = [c1.meta?.jobId, c2.meta?.jobId].filter(Boolean);
@@ -204,5 +265,23 @@ export class RecoService {
       nextRefreshAfter: anyPartial ? 5 : undefined,
     };
     return { items: ranked, meta } as any;
+  }
+
+  async addFeedback(dto: FeedbackDto) {
+    await this.feedbackModel.create({ userId: dto.userId, movieId: dto.movieId, label: dto.label, source: dto.source });
+    if (dto.label === 1) {
+      await this.profileModel.findOneAndUpdate(
+        { userId: dto.userId },
+        { $addToSet: { likedMovieIds: dto.movieId } },
+        { upsert: true },
+      );
+    } else {
+      await this.profileModel.findOneAndUpdate(
+        { userId: dto.userId },
+        { $addToSet: { dislikedMovieIds: dto.movieId } },
+        { upsert: true },
+      );
+    }
+    return { ok: true };
   }
 }
