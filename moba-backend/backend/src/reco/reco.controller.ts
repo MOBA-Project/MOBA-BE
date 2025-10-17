@@ -1,13 +1,14 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Param } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RecoService } from './reco.service';
 import { ProfileGenresDto } from './dto/profile-genres.dto';
 import { ProfileLikesDto } from './dto/profile-likes.dto';
+import { JobsService } from './jobs.service';
 
 @ApiTags('Recommendations')
 @Controller('v1')
 export class RecoController {
-  constructor(private readonly recoService: RecoService) {}
+  constructor(private readonly recoService: RecoService, private readonly jobs: JobsService) {}
 
   @Post('profile/genres')
   @ApiOperation({ summary: '프로필 선호 장르 저장/갱신' })
@@ -35,8 +36,7 @@ export class RecoController {
       .filter(Boolean)
       .map((s) => Number(s))
       .filter((n) => Number.isFinite(n));
-    const res = await this.recoService.getCandidates(genreIds, Number(page) || 1, Number(size) || 20);
-    return res;
+    return this.recoService.getCandidates(genreIds, Number(page) || 1, Number(size) || 20);
   }
 
   @Get('reco/personal')
@@ -46,5 +46,12 @@ export class RecoController {
   async personal(@Query('userId') userId: string, @Query('size') size = 20) {
     return this.recoService.getPersonal(userId, Number(size) || 20);
   }
-}
 
+  @Get('reco/jobs/:id')
+  @ApiOperation({ summary: '추천 백그라운드 잡 상태 조회' })
+  async jobStatus(@Param('id') id: string) {
+    const job = this.jobs.get(id);
+    if (!job) return { status: 'not_found' };
+    return { id: job.id, status: job.status, updatedAt: job.updatedAt };
+  }
+}
