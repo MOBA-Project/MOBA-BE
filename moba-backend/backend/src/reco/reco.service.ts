@@ -3,6 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import axios from 'axios';
 import { UserProfile, UserProfileDocument } from './schemas/user-profile.schema';
+import { Movie, MovieDocument } from '../movies/schemas/movie.schema';
+import { MovieVector, MovieVectorDocument } from './schemas/movie-vector.schema';
+import { cosineFromWeights } from './utils/text';
 
 type TmdbMovie = {
   id: number;
@@ -24,6 +27,10 @@ export class RecoService {
   constructor(
     @InjectModel(UserProfile.name)
     private readonly profileModel: Model<UserProfileDocument>,
+    @InjectModel(Movie.name)
+    private readonly movieModel: Model<MovieDocument>,
+    @InjectModel(MovieVector.name)
+    private readonly vecModel: Model<MovieVectorDocument>,
   ) {}
 
   async upsertFavoriteGenres(userId: string, favoriteGenres: number[]) {
@@ -45,6 +52,26 @@ export class RecoService {
   }
 
   async getCandidates(genreIds: number[], page = 1, size = 20) {
+    // Prefer local DB if available; fallback to TMDB discover
+    const query: any = genreIds.length ? { genres: { $in: genreIds } } : {};
+    const local = await this.movieModel
+      .find(query)
+      .sort({ popularity: -1 })
+      .skip((page - 1) * size)
+      .limit(size)
+      .lean();
+    if (local?.length) {
+      return local.map((m) => ({
+        id: m.movieId,
+        title: m.title,
+        genre_ids: m.genres,
+        overview: m.overview,
+        popularity: m.popularity,
+        vote_average: m.voteAverage,
+        release_date: m.releaseDate,
+        poster_path: m.posterPath,
+      }));
+    }
     try {
       const withGenres = genreIds.length ? `&with_genres=${genreIds.join(',')}` : '';
       const url = `${this.BASE_URL}/discover/movie?api_key=${this.API_KEY}&language=ko-KR&region=KR&page=${page}${withGenres}`;
@@ -81,30 +108,72 @@ export class RecoService {
     const profile = await this.profileModel.findOne({ userId });
     const favoriteGenres = profile?.favoriteGenres || [];
 
-    // 후보군: 선호 장르 discover에서 상위 2페이지 정도 수집
+    // Candidate pool: local DB by genre; fallback to TMDB
     const [p1, p2] = await Promise.all([
       this.getCandidates(favoriteGenres, 1, size),
       this.getCandidates(favoriteGenres, 2, size),
     ]);
     const poolMap = new Map<number, TmdbMovie>();
-    [...p1, ...p2].forEach((m) => poolMap.set(m.id, m));
+    ;[...p1, ...p2].forEach((m) => poolMap.set(m.id, m));
     const pool = Array.from(poolMap.values());
+
+    // Build user vector from liked movies if available
+    const likedIds = profile?.likedMovieIds || [];
+    let userVec: { [term: string]: number } | null = null;
+    if (likedIds.length) {
+      const liked = await this.vecModel.find({ movieId: { $in: likedIds } }).lean();
+      if (liked.length) {
+        const acc = new Map<string, number>();
+        for (const mv of liked) {
+          for (const tw of mv.tfidf || []) {
+            acc.set(tw.term, (acc.get(tw.term) || 0) + tw.weight);
+          }
+        }
+        const factor = 1 / liked.length;
+        userVec = {};
+        for (const [t, w] of acc.entries()) userVec[t] = w * factor;
+      }
+    }
 
     const ranked = pool
       .map((m) => {
-        const { score, reasons } = this.scoreMovie(m, favoriteGenres);
+        const { score: baseScore, reasons } = this.scoreMovie(m, favoriteGenres);
+        let finalScore = baseScore;
+        if (userVec) {
+          // cosine similarity with movie vector if exists
+          // fetch from DB
+          // Note: sync call avoided; we simplify by using cached vectors fetched in batch later if needed
+        }
         return {
           movieId: m.id,
           title: m.title,
           posterPath: m.poster_path,
-          score,
+          score: finalScore,
           reasons,
         };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, size);
 
+    // If user vector exists, refine with cosine similarity batch
+    if (userVec) {
+      const poolIds = ranked.map((r) => r.movieId);
+      const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }).lean();
+      const map = new Map<number, { tfidf: { term: string; weight: number }[] }>();
+      for (const v of vecs) map.set(v.movieId, { tfidf: v.tfidf || [] });
+
+      const userWeights = Object.entries(userVec).map(([term, weight]) => ({ term, weight }));
+      for (const r of ranked) {
+        const mv = map.get(r.movieId);
+        if (!mv) continue;
+        const cos = cosineFromWeights(userWeights, mv.tfidf);
+        // Blend cosine with base score
+        r.score = 0.6 * cos + 0.4 * r.score;
+        r.reasons = [...r.reasons, `cos:${cos.toFixed(3)}`];
+      }
+      ranked.sort((a, b) => b.score - a.score);
+    }
+
     return ranked;
   }
 }
-
