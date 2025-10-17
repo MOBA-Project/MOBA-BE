@@ -26,7 +26,7 @@ import { UpdatePostDto } from './dto/update-post.dto';
 import { PostResponseDto } from './dto/post-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@ApiTags('Posts')
+@ApiTags('영화 감상문 게시판 (Posts)')
 @Controller('posts')
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
