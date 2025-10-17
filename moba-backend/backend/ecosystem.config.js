@@ -5,6 +5,7 @@ module.exports = {
       script: './dist/main.js',
       instances: 1,
       exec_mode: 'cluster',
+      node_args: process.env.NODE_OPTIONS || '--max-old-space-size=3072',
       watch: false,
       max_memory_restart: '1G',
       env: {

@@ -5,6 +5,8 @@ import { ProfileGenresDto } from './dto/profile-genres.dto';
 import { ProfileLikesDto } from './dto/profile-likes.dto';
 import { JobsService } from './jobs.service';
 import { FeedbackDto } from './dto/feedback.dto';
+import { PreviewDto } from './dto/preview.dto';
+import { CommitDto } from './dto/commit.dto';
 
 @ApiTags('Recommendations')
 @Controller('v1')
@@ -60,5 +62,23 @@ export class RecoController {
   @ApiOperation({ summary: '추천 피드백(긍/부정) 저장' })
   async feedback(@Body() dto: FeedbackDto) {
     return this.recoService.addFeedback(dto);
+  }
+
+  @Post('reco/preview')
+  @ApiOperation({ summary: '배치형 개인화 추천 미리보기(저장 없음)' })
+  async preview(@Body() dto: PreviewDto) {
+    const size = Number(dto.size || 20);
+    return this.recoService.previewRecommendations({
+      favoriteGenres: dto.favoriteGenres || [],
+      likes: dto.likes || [],
+      dislikes: dto.dislikes || [],
+      size,
+    });
+  }
+
+  @Post('reco/commit')
+  @ApiOperation({ summary: '선호 장르/좋아요/싫어요 일괄 반영' })
+  async commit(@Body() dto: CommitDto) {
+    return this.recoService.commitPreferences(dto);
   }
 }
