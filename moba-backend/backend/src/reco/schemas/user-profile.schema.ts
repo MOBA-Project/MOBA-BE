@@ -27,6 +27,16 @@ export class UserProfile {
   // 사용자가 싫어요/스킵한 영화 ID (선택)
   @Prop({ type: [Number], default: [] })
   dislikedMovieIds: number[];
+
+  // Session-scoped preferences for final recommendation (non-cumulative)
+  @Prop({ type: [Number], default: [] })
+  sessionLikes: number[];
+
+  @Prop({ type: [Number], default: [] })
+  sessionDislikes: number[];
+
+  @Prop({ type: [Number], default: [] })
+  sessionFavoriteGenres: number[];
 }
 
 export const UserProfileSchema = SchemaFactory.createForClass(UserProfile);

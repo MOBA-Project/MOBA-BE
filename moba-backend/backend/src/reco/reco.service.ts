@@ -300,6 +300,19 @@ export class RecoService {
       { upsert: true },
     );
 
+    // Save session-scoped preferences for next personal recommendation (non-cumulative)
+    await this.profileModel.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          sessionLikes: likes,
+          sessionDislikes: dislikes,
+          sessionFavoriteGenres: fav,
+        },
+      },
+      { upsert: true },
+    );
+
     // Fire-and-forget: ensure vectors exist for liked/disliked movies (limited)
     const ensureLimit = Math.max(1, Number(process.env.INGEST_ENSURE_LIMIT || 100));
     const ensureIds = Array.from(new Set([...likes, ...dislikes])).slice(0, ensureLimit);
@@ -516,7 +529,9 @@ export class RecoService {
 
   async getPersonal(userId: string, size = 20) {
     const profile = await this.profileModel.findOne({ userId });
-    const favoriteGenres = profile?.favoriteGenres || [];
+    const useSessionPref = ((process.env.PERSONAL_USE_SESSION || 'true').toLowerCase() === '1') || ((process.env.PERSONAL_USE_SESSION || 'true').toLowerCase() === 'true');
+    const hasSession = (profile?.sessionLikes?.length || 0) > 0 || (profile?.sessionDislikes?.length || 0) > 0 || (profile?.sessionFavoriteGenres?.length || 0) > 0;
+    const favoriteGenres = useSessionPref && hasSession ? (profile?.sessionFavoriteGenres || []) : (profile?.favoriteGenres || []);
 
     // Build exclusion set: liked, disliked, and recently exposed items
     const excludeIds = new Set<number>([...new Set([...(profile?.likedMovieIds || []), ...(profile?.dislikedMovieIds || [])])]);
@@ -567,8 +582,8 @@ export class RecoService {
     } catch {}
 
     // Build user vectors from feedback if available (positive/negative)
-    const likedIds = profile?.likedMovieIds || [];
-    const dislikedIds = profile?.dislikedMovieIds || [];
+    const likedIds = useSessionPref && hasSession ? (profile?.sessionLikes || []) : (profile?.likedMovieIds || []);
+    const dislikedIds = useSessionPref && hasSession ? (profile?.sessionDislikes || []) : (profile?.dislikedMovieIds || []);
     let userVec: { [term: string]: number } | null = null;
     let userNegVec: { [term: string]: number } | null = null;
     let userSbert: number[] | null = null;
