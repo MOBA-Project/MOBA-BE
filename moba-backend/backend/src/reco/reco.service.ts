@@ -28,6 +28,7 @@ type TmdbMovie = {
 export class RecoService {
   private readonly BASE_URL = 'https://api.themoviedb.org/3';
   private readonly API_KEY = process.env.TMDB_API_KEY;
+  private readonly TMDB_TIMEOUT = Number(process.env.TMDB_TIMEOUT_MS || 2000);
 
   constructor(
     @InjectModel(UserProfile.name)
@@ -142,20 +143,15 @@ export class RecoService {
       }
     }
 
-    // Base ranking
-    let ranked = pool
+    // Base scoring across entire pool, then take expanded pool for personalization
+    const baseScored = pool
       .map((m) => {
         const { score: baseScore, reasons } = this.scoreMovie(m, favoriteGenres);
-        return {
-          movieId: m.id,
-          title: m.title,
-          posterPath: m.poster_path,
-          score: baseScore,
-          reasons,
-        };
+        return { movieId: m.id, title: m.title, posterPath: m.poster_path, score: baseScore, reasons };
       })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, size);
+      .sort((a, b) => b.score - a.score);
+    const poolMult = Math.max(2, Number(process.env.RECO_POOL_MULT || process.env.DIVERSITY_POOL_MULTIPLIER || 5));
+    let ranked = baseScored.slice(0, Math.min(baseScored.length, size * poolMult));
 
     // TF-IDF refine if available (apply negative even without positives)
     if (userVec || userNegVec) {
@@ -279,6 +275,8 @@ export class RecoService {
       if (selected.length) ranked = selected;
     }
 
+    // Finalize: if MMR disabled, trim to size
+    if (!(enableMMR)) ranked = ranked.slice(0, size);
     const meta = { partial: false, source: 'local' } as any;
     return { items: ranked, meta } as any;
   }
@@ -303,7 +301,8 @@ export class RecoService {
     );
 
     // Fire-and-forget: ensure vectors exist for liked/disliked movies (limited)
-    const ensureIds = Array.from(new Set([...likes, ...dislikes])).slice(0, 50);
+    const ensureLimit = Math.max(1, Number(process.env.INGEST_ENSURE_LIMIT || 100));
+    const ensureIds = Array.from(new Set([...likes, ...dislikes])).slice(0, ensureLimit);
     if (ensureIds.length) {
       setTimeout(async () => {
         const chunks: number[][] = [];
@@ -430,7 +429,7 @@ export class RecoService {
     try {
       const withGenres = genreIds.length ? `&with_genres=${genreIds.join(',')}` : '';
       const url = `${this.BASE_URL}/discover/movie?api_key=${this.API_KEY}&language=ko-KR&region=KR&page=${page}${withGenres}`;
-      const { data } = await axios.get(url);
+      const { data } = await axios.get(url, { timeout: this.TMDB_TIMEOUT });
       let results: TmdbMovie[] = (data.results || []).slice(0, size);
       if (useRandom) {
         // 간단 셔플 + 연식/인기 필터(옵션)
@@ -522,10 +521,13 @@ export class RecoService {
     // Build exclusion set: liked, disliked, and recently exposed items
     const excludeIds = new Set<number>([...new Set([...(profile?.likedMovieIds || []), ...(profile?.dislikedMovieIds || [])])]);
     try {
+      const excludeN = Number.isFinite(Number(process.env.RECO_EXCLUDE_RECENT_N))
+        ? Number(process.env.RECO_EXCLUDE_RECENT_N)
+        : 100;
       const recent = await this.logModel
         .find({ userId }, { movieId: 1 })
         .sort({ createdAt: -1 })
-        .limit(200)
+        .limit(Math.max(0, excludeN))
         .lean();
       for (const r of recent) excludeIds.add((r as any).movieId);
     } catch {}
@@ -533,8 +535,8 @@ export class RecoService {
     // Candidate pool with expansion across pages until we have enough after filtering
     const poolMap = new Map<number, TmdbMovie>();
     let page = 1;
-    const maxPages = 8;
-    while (poolMap.size < Math.max(size * 2, 40) && page <= maxPages) {
+    const maxPages = Math.max(2, Number(process.env.RECO_MAX_PAGES || 4));
+    while (poolMap.size < Math.max(size * 2, 60) && page <= maxPages) {
       const cand = await this.getCandidates(favoriteGenres, page, Math.max(size, 20));
       for (const m of cand.items) {
         if (!excludeIds.has(m.id)) poolMap.set(m.id, m);
@@ -542,6 +544,27 @@ export class RecoService {
       page++;
     }
     const pool = Array.from(poolMap.values());
+
+    // Optional: ensure vectors for subset of pool to improve personalization coverage
+    try {
+      const ensure = (process.env.ENSURE_POOL_VECTORS || 'true').toLowerCase();
+      const doEnsure = ensure === '1' || ensure === 'true';
+      if (doEnsure && pool.length) {
+        const limit = Math.max(1, Number(process.env.ENSURE_POOL_LIMIT || 30));
+        const ids = pool.slice(0, Math.min(pool.length, limit)).map((m) => m.id);
+        setTimeout(async () => {
+          try {
+            const existing = await this.vecModel.find({ movieId: { $in: ids } }, { movieId: 1, sbert: 1, tfidf: 1 }).lean();
+            const have = new Set(existing.filter((v: any) => (v.sbert?.length || 0) > 0 || (v.tfidf?.length || 0) > 0).map((v: any) => v.movieId));
+            const toSync = ids.filter((id) => !have.has(id));
+            const batch = 5;
+            for (let i = 0; i < toSync.length; i += batch) {
+              await Promise.allSettled(toSync.slice(i, i + batch).map((id) => this.ingest.syncMovieById(id)));
+            }
+          } catch {}
+        }, 0);
+      }
+    } catch {}
 
     // Build user vectors from feedback if available (positive/negative)
     const likedIds = profile?.likedMovieIds || [];
@@ -603,25 +626,15 @@ export class RecoService {
       }
     }
 
-    let ranked = pool
+    // Base scoring across entire pool, then take expanded pool for personalization
+    const baseScored = pool
       .map((m) => {
         const { score: baseScore, reasons } = this.scoreMovie(m, favoriteGenres);
-        let finalScore = baseScore;
-        if (userVec) {
-          // cosine similarity with movie vector if exists
-          // fetch from DB
-          // Note: sync call avoided; we simplify by using cached vectors fetched in batch later if needed
-        }
-        return {
-          movieId: m.id,
-          title: m.title,
-          posterPath: m.poster_path,
-          score: finalScore,
-          reasons,
-        };
+        return { movieId: m.id, title: m.title, posterPath: m.poster_path, score: baseScore, reasons };
       })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, size);
+      .sort((a, b) => b.score - a.score);
+    const poolMult = Math.max(2, Number(process.env.RECO_POOL_MULT || process.env.DIVERSITY_POOL_MULTIPLIER || 5));
+    let ranked = baseScored.slice(0, Math.min(baseScored.length, size * poolMult));
 
     // If user or negative vector exists, refine with cosine similarity batch
     if (userVec || userNegVec) {
@@ -760,6 +773,9 @@ export class RecoService {
       }
       if (selected.length) ranked = selected;
     }
+
+    // If MMR disabled, finalize slice to size
+    if (!enableMMRPersonal) ranked = ranked.slice(0, size);
 
     // Diversity (epsilon-greedy)
     const eps = Number(process.env.RECO_EPSILON ?? 0.05);
