@@ -7,6 +7,7 @@ import { Movie, MovieDocument } from '../movies/schemas/movie.schema';
 import { MovieVector, MovieVectorDocument } from './schemas/movie-vector.schema';
 import { cosineFromWeights, cosineVec } from './utils/text';
 import { IngestService } from './ingest.service';
+import { SbertService } from './embeddings/sbert.service';
 import { JobsService } from './jobs.service';
 import { RecoLog, RecoLogDocument } from './schemas/reco-log.schema';
 import { UserFeedback, UserFeedbackDocument } from './schemas/user-feedback.schema';
@@ -42,8 +43,24 @@ export class RecoService {
     @InjectModel(UserFeedback.name)
     private readonly feedbackModel: Model<UserFeedbackDocument>,
     private readonly ingest: IngestService,
+    private readonly sbertSvc: SbertService,
     private readonly jobs: JobsService,
   ) {}
+
+  private isTrue(x?: string) {
+    const v = (x || '').toLowerCase();
+    return v === '1' || v === 'true' || v === 'yes';
+  }
+
+  private async embedTextOnTheFly(text?: string): Promise<number[] | null> {
+    try {
+      if (!text || !text.trim()) return null;
+      const [emb] = await this.sbertSvc.embed([text]);
+      return Array.isArray(emb) ? emb : null;
+    } catch {
+      return null;
+    }
+  }
 
   async upsertFavoriteGenres(userId: string, favoriteGenres: number[]) {
     const profile = await this.profileModel.findOneAndUpdate(
