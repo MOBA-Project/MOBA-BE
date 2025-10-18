@@ -52,6 +52,22 @@ export class BookmarksController {
     return this.bookmarksService.getBookmarkStatus(userId, Number(movieId));
   }
 
+  // 다건 상태 조회: /bookmarks/status?movieIds=1,2,3
+  @Get('status')
+  @ApiOperation({ summary: '여러 영화 북마크 상태' })
+  @ApiQuery({ name: 'movieIds', required: true, example: '1156594,1072699,1038392', description: 'TMDB 영화 ID CSV' })
+  async statusBulk(@Req() req, @Query('movieIds') movieIds: string) {
+    const userId = req.user.id || req.user._id?.toString();
+    const ids = (movieIds || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => Number(s))
+      .filter((n) => Number.isFinite(n));
+    const results = await Promise.all(ids.map((id) => this.bookmarksService.getBookmarkStatus(userId, id)));
+    return ids.map((id, idx) => ({ movieId: id, isBookmarked: results[idx].isBookmarked }));
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '북마크 상세' })
   async findOne(@Req() req, @Param('id') id: string) {
