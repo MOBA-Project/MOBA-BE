@@ -328,13 +328,14 @@ export class RecoService {
     const useRandom = randomFlag === '1' || randomFlag === 'true';
     const minPop = Number(process.env.CANDIDATE_MIN_POP || 0);
     const maxAgeYears = Number(process.env.CANDIDATE_MAX_AGE_YEARS || 0); // 0이면 제한 없음
+    const sampleMult = Math.max(2, Number(process.env.CANDIDATE_SAMPLE_MULT || 4));
 
-    if (useRandom && page === 1) {
+    if (useRandom) {
       // 로컬에서 조건부 랜덤 샘플링 ($sample)
       const match: any = { ...query };
       if (Number.isFinite(minPop) && minPop > 0) match.popularity = { $gte: minPop };
       try {
-        const sampleSize = Math.max(size * 3, size);
+        const sampleSize = Math.max(size * sampleMult, size);
         const agg = await this.movieModel
           .aggregate([
             { $match: match },
@@ -356,7 +357,7 @@ export class RecoService {
 
         // 연식 필터(옵션)
         const now = Date.now();
-        const filtered = (agg || []).filter((m: any) => {
+        let filtered = (agg || []).filter((m: any) => {
           if (!maxAgeYears || !m?.releaseDate) return true;
           const rd = new Date(m.releaseDate);
           if (isNaN(rd.getTime())) return true;
@@ -364,6 +365,8 @@ export class RecoService {
           return ageYears <= maxAgeYears;
         });
 
+        // 필터로 부족하면 완화: 연식 필터 해제 후 재시도
+        if (filtered.length < size) filtered = (agg || []);
         const chosen = filtered.slice(0, size);
         if (chosen.length) {
           const items = chosen.map((m: any) => ({
@@ -392,24 +395,25 @@ export class RecoService {
       .lean();
     if (local?.length) {
       let rows = local;
-      if (useRandom && page === 1) {
+      if (useRandom) {
         // 간단 셔플 + 연식 필터(옵션)
         const now = Date.now();
-        rows = rows.filter((m: any) => {
+        let frows = rows.filter((m: any) => {
           if (!maxAgeYears || !m?.releaseDate) return true;
           const rd = new Date(m.releaseDate);
           if (isNaN(rd.getTime())) return true;
           const ageYears = (now - rd.getTime()) / (1000 * 60 * 60 * 24 * 365);
           return ageYears <= maxAgeYears;
         });
+        if (frows.length < size) frows = rows; // 부족하면 연식 필터 완화
         // Fisher-Yates shuffle
-        for (let i = rows.length - 1; i > 0; i--) {
+        for (let i = frows.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
-          const tmp = rows[i];
-          rows[i] = rows[j];
-          rows[j] = tmp;
+          const tmp = frows[i];
+          frows[i] = frows[j];
+          frows[j] = tmp;
         }
-        rows = rows.slice(0, size);
+        rows = frows.slice(0, size);
       }
       const items = rows.map((m: any) => ({
         id: (m as any).movieId,
@@ -428,10 +432,10 @@ export class RecoService {
       const url = `${this.BASE_URL}/discover/movie?api_key=${this.API_KEY}&language=ko-KR&region=KR&page=${page}${withGenres}`;
       const { data } = await axios.get(url);
       let results: TmdbMovie[] = (data.results || []).slice(0, size);
-      if (useRandom && page === 1) {
+      if (useRandom) {
         // 간단 셔플 + 연식/인기 필터(옵션)
         const now = Date.now();
-        const tmp = (data.results || []).filter((r: any) => {
+        let tmp = (data.results || []).filter((r: any) => {
           const okPop = !minPop || (r?.popularity || 0) >= minPop;
           if (!maxAgeYears) return okPop;
           const rd = r?.release_date ? new Date(r.release_date) : null;
@@ -439,6 +443,7 @@ export class RecoService {
           const ageYears = (now - rd.getTime()) / (1000 * 60 * 60 * 24 * 365);
           return okPop && ageYears <= maxAgeYears;
         });
+        if (tmp.length < size) tmp = (data.results || []); // 부족하면 필터 완화
         for (let i = tmp.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           const t = tmp[i];
