@@ -685,11 +685,35 @@ export class RecoService {
       }
     }
 
-    // Log exposures
+    // Log exposures with full snapshot for later browsing by date/genre
     try {
-      const bulk = ranked.map((r, idx) => ({
-        insertOne: { document: { userId, movieId: r.movieId, score: r.score, position: idx, interacted: false } },
-      }));
+      const now = new Date();
+      const detailMap = new Map<number, TmdbMovie>();
+      for (const m of pool) detailMap.set(m.id, m);
+      const bulk = ranked.map((r, idx) => {
+        const m = detailMap.get(r.movieId);
+        const genres = m?.genre_ids || (m?.genres ? m.genres.map((g: any) => (typeof g === 'number' ? g : g.id)) : []);
+        return {
+          insertOne: {
+            document: {
+              userId,
+              movieId: r.movieId,
+              score: r.score,
+              position: idx,
+              interacted: false,
+              title: r.title,
+              posterPath: r.posterPath,
+              genres,
+              reasons: r.reasons || [],
+              popularity: m?.popularity || 0,
+              voteAverage: (m as any)?.vote_average || 0,
+              releaseDate: m?.release_date || null,
+              source: 'personal',
+              recommendedAt: now,
+            },
+          },
+        };
+      });
       if (bulk.length) await this.logModel.bulkWrite(bulk, { ordered: false });
     } catch {}
 
