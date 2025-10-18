@@ -244,6 +244,68 @@ export class RecoService {
   async getCandidates(genreIds: number[], page = 1, size = 20): Promise<{ items: TmdbMovie[]; meta: any }> {
     // Prefer local DB if available; fallback to TMDB discover and trigger background sync
     const query: any = genreIds.length ? { genres: { $in: genreIds } } : {};
+
+    // 랜덤 샘플링 모드 (환경변수 기반)
+    const randomFlag = (process.env.CANDIDATE_RANDOM || '').toLowerCase();
+    const useRandom = randomFlag === '1' || randomFlag === 'true';
+    const minPop = Number(process.env.CANDIDATE_MIN_POP || 0);
+    const maxAgeYears = Number(process.env.CANDIDATE_MAX_AGE_YEARS || 0); // 0이면 제한 없음
+
+    if (useRandom && page === 1) {
+      // 로컬에서 조건부 랜덤 샘플링 ($sample)
+      const match: any = { ...query };
+      if (Number.isFinite(minPop) && minPop > 0) match.popularity = { $gte: minPop };
+      try {
+        const sampleSize = Math.max(size * 3, size);
+        const agg = await this.movieModel
+          .aggregate([
+            { $match: match },
+            { $sample: { size: sampleSize } },
+            {
+              $project: {
+                movieId: 1,
+                title: 1,
+                genres: 1,
+                overview: 1,
+                popularity: 1,
+                voteAverage: 1,
+                releaseDate: 1,
+                posterPath: 1,
+              },
+            },
+          ])
+          .exec();
+
+        // 연식 필터(옵션)
+        const now = Date.now();
+        const filtered = (agg || []).filter((m: any) => {
+          if (!maxAgeYears || !m?.releaseDate) return true;
+          const rd = new Date(m.releaseDate);
+          if (isNaN(rd.getTime())) return true;
+          const ageYears = (now - rd.getTime()) / (1000 * 60 * 60 * 24 * 365);
+          return ageYears <= maxAgeYears;
+        });
+
+        const chosen = filtered.slice(0, size);
+        if (chosen.length) {
+          const items = chosen.map((m: any) => ({
+            id: m.movieId,
+            title: m.title,
+            genre_ids: m.genres,
+            overview: m.overview,
+            popularity: m.popularity,
+            vote_average: m.voteAverage,
+            release_date: m.releaseDate,
+            poster_path: m.posterPath,
+          }));
+          return { items, meta: { source: 'local', partial: false, random: true } };
+        }
+        // 샘플이 비었으면 기존 로직으로 폴백
+      } catch {
+        // 집계 실패 시 기존 로직으로 폴백
+      }
+    }
+
     const local = await this.movieModel
       .find(query)
       .sort({ popularity: -1 })
@@ -251,23 +313,62 @@ export class RecoService {
       .limit(size)
       .lean();
     if (local?.length) {
-      const items = local.map((m) => ({
-        id: m.movieId,
-        title: m.title,
-        genre_ids: m.genres,
-        overview: m.overview,
-        popularity: m.popularity,
-        vote_average: m.voteAverage,
-        release_date: m.releaseDate,
-        poster_path: m.posterPath,
+      let rows = local;
+      if (useRandom && page === 1) {
+        // 간단 셔플 + 연식 필터(옵션)
+        const now = Date.now();
+        rows = rows.filter((m: any) => {
+          if (!maxAgeYears || !m?.releaseDate) return true;
+          const rd = new Date(m.releaseDate);
+          if (isNaN(rd.getTime())) return true;
+          const ageYears = (now - rd.getTime()) / (1000 * 60 * 60 * 24 * 365);
+          return ageYears <= maxAgeYears;
+        });
+        // Fisher-Yates shuffle
+        for (let i = rows.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const tmp = rows[i];
+          rows[i] = rows[j];
+          rows[j] = tmp;
+        }
+        rows = rows.slice(0, size);
+      }
+      const items = rows.map((m: any) => ({
+        id: (m as any).movieId,
+        title: (m as any).title,
+        genre_ids: (m as any).genres,
+        overview: (m as any).overview,
+        popularity: (m as any).popularity,
+        vote_average: (m as any).voteAverage,
+        release_date: (m as any).releaseDate,
+        poster_path: (m as any).posterPath,
       }));
-      return { items, meta: { source: 'local', partial: false } };
+      return { items, meta: { source: 'local', partial: false, random: !!(useRandom && page === 1) } };
     }
     try {
       const withGenres = genreIds.length ? `&with_genres=${genreIds.join(',')}` : '';
       const url = `${this.BASE_URL}/discover/movie?api_key=${this.API_KEY}&language=ko-KR&region=KR&page=${page}${withGenres}`;
       const { data } = await axios.get(url);
-      const results: TmdbMovie[] = (data.results || []).slice(0, size);
+      let results: TmdbMovie[] = (data.results || []).slice(0, size);
+      if (useRandom && page === 1) {
+        // 간단 셔플 + 연식/인기 필터(옵션)
+        const now = Date.now();
+        const tmp = (data.results || []).filter((r: any) => {
+          const okPop = !minPop || (r?.popularity || 0) >= minPop;
+          if (!maxAgeYears) return okPop;
+          const rd = r?.release_date ? new Date(r.release_date) : null;
+          if (!rd || isNaN(rd.getTime())) return okPop;
+          const ageYears = (now - rd.getTime()) / (1000 * 60 * 60 * 24 * 365);
+          return okPop && ageYears <= maxAgeYears;
+        });
+        for (let i = tmp.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const t = tmp[i];
+          tmp[i] = tmp[j];
+          tmp[j] = t;
+        }
+        results = tmp.slice(0, size);
+      }
 
       // Trigger background sync for fetched movies
       const job = this.jobs.create('fallback_discover_sync');
