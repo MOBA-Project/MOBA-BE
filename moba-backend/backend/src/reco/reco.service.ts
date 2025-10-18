@@ -496,7 +496,17 @@ export class RecoService {
       rec = Math.exp(-ageYears / 8); // 8년 반감 정도
     }
 
-    const score = weights.alpha * sim + weights.beta * pop + weights.gamma * vote + weights.delta * rec;
+    // 단일/소수 장르 선택 시 장르 가중 감소(ENV로 제어)
+    let alphaEff = weights.alpha;
+    if (favoriteGenres.length <= 1) {
+      const a1 = Number(process.env.RECO_ALPHA_SINGLE ?? NaN);
+      if (Number.isFinite(a1)) alphaEff = a1 as number;
+    } else if (favoriteGenres.length === 2) {
+      const a2 = Number(process.env.RECO_ALPHA_TWO ?? NaN);
+      if (Number.isFinite(a2)) alphaEff = a2 as number;
+    }
+
+    const score = alphaEff * sim + weights.beta * pop + weights.gamma * vote + weights.delta * rec;
     const reasons: string[] = [];
     if (matchCount > 0) reasons.push(`matchedGenres:${matchCount}`);
     if (movie.popularity) reasons.push(`popularity:${movie.popularity.toFixed(1)}`);
@@ -671,6 +681,84 @@ export class RecoService {
         r.reasons = [...r.reasons, `sbert:${cosS.toFixed(3)}`, userNegSbert ? `sneg:${negS.toFixed(3)}` : ''];
       }
       ranked.sort((a, b) => b.score - a.score);
+    }
+
+    // Diversity (MMR) for personal to avoid near-duplicates
+    const divEnableP = (process.env.DIVERSITY_ENABLE_PERSONAL || '').toLowerCase();
+    const enableMMRPersonal = divEnableP === '1' || divEnableP === 'true';
+    if (enableMMRPersonal && ranked.length > 3) {
+      const lambda = Number.isFinite(Number(process.env.DIVERSITY_MMR_LAMBDA))
+        ? Number(process.env.DIVERSITY_MMR_LAMBDA)
+        : 0.8;
+      const mult = Number.isFinite(Number(process.env.DIVERSITY_POOL_MULTIPLIER))
+        ? Math.max(2, Number(process.env.DIVERSITY_POOL_MULTIPLIER))
+        : 3;
+      const topPool = Math.min(ranked.length, size * mult);
+      const candidates = ranked.slice(0, topPool);
+
+      // Fetch SBERT vectors for candidates
+      const ids = candidates.map((c) => c.movieId);
+      const vecs = await this.vecModel.find({ movieId: { $in: ids } }, { movieId: 1, sbert: 1 }).lean();
+      const mapS = new Map<number, number[]>();
+      for (const v of vecs) mapS.set((v as any).movieId, (v as any).sbert || []);
+
+      // Build quick lookup for genres from pool
+      const gMap = new Map<number, number[]>();
+      for (const m of pool) gMap.set(m.id, (m.genre_ids || (m.genres ? m.genres.map((g) => g.id) : [])) || []);
+
+      // Normalize base scores to 0..1
+      let minS = Infinity,
+        maxS = -Infinity;
+      for (const c of candidates) {
+        if (c.score < minS) minS = c.score;
+        if (c.score > maxS) maxS = c.score;
+      }
+      const norm = (s: number) => (maxS > minS ? (s - minS) / (maxS - minS) : 0.5);
+
+      const selected: typeof ranked = [];
+      const rest = new Set<number>(ids);
+      const simCache = new Map<string, number>();
+      const simAB = (a: number, b: number) => {
+        if (a === b) return 1;
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        if (simCache.has(key)) return simCache.get(key)!;
+        const va = mapS.get(a);
+        const vb = mapS.get(b);
+        let sim = 0;
+        if (va?.length && vb?.length) {
+          sim = cosineVec(va, vb);
+        } else {
+          const ga = new Set(gMap.get(a) || []);
+          const gb = new Set(gMap.get(b) || []);
+          const inter = Array.from(ga).filter((x) => gb.has(x)).length;
+          const uni = new Set([...Array.from(ga), ...Array.from(gb)]).size || 1;
+          sim = inter / uni;
+        }
+        simCache.set(key, sim);
+        return sim;
+      };
+
+      while (selected.length < size && rest.size > 0) {
+        let bestId = -1;
+        let bestScore = -Infinity;
+        for (const id of rest) {
+          const item = candidates.find((c) => c.movieId === id);
+          if (!item) continue;
+          const rel = norm(item.score);
+          let div = 0;
+          for (const s of selected) div = Math.max(div, simAB(id, s.movieId));
+          const mmr = lambda * rel - (1 - lambda) * div;
+          if (mmr > bestScore) {
+            bestScore = mmr;
+            bestId = id;
+          }
+        }
+        if (bestId === -1) break;
+        const pick = candidates.find((c) => c.movieId === bestId)!;
+        selected.push(pick);
+        rest.delete(bestId);
+      }
+      if (selected.length) ranked = selected;
     }
 
     // Diversity (epsilon-greedy)
