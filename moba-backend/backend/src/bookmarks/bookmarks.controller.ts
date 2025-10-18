@@ -64,8 +64,7 @@ export class BookmarksController {
       .filter(Boolean)
       .map((s) => Number(s))
       .filter((n) => Number.isFinite(n));
-    const results = await Promise.all(ids.map((id) => this.bookmarksService.getBookmarkStatus(userId, id)));
-    return ids.map((id, idx) => ({ movieId: id, isBookmarked: results[idx].isBookmarked }));
+    return this.bookmarksService.getBookmarksStatusBulk(userId, ids);
   }
 
   @Get(':id')

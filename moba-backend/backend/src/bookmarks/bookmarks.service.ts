@@ -134,4 +134,17 @@ export class BookmarksService {
     
     return result.map(item => item._id);
   }
+
+  // 여러 영화의 북마크 상태를 한 번의 쿼리로 조회
+  async getBookmarksStatusBulk(
+    userId: string,
+    movieIds: number[],
+  ): Promise<{ movieId: number; isBookmarked: boolean }[]> {
+    if (!Array.isArray(movieIds) || movieIds.length === 0) return [];
+    const rows = await this.bookmarkModel
+      .find({ userId, movieId: { $in: movieIds } }, { movieId: 1 })
+      .lean();
+    const have = new Set<number>((rows || []).map((r: any) => r.movieId));
+    return movieIds.map((id) => ({ movieId: id, isBookmarked: have.has(id) }));
+  }
 }
