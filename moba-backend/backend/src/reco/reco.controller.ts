@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Param } from '@nestjs/common';
+﻿import { Body, Controller, Get, Post, Query, Param } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RecoService } from './reco.service';
 import { ProfileGenresDto } from './dto/profile-genres.dto';
@@ -14,22 +14,22 @@ export class RecoController {
   constructor(private readonly recoService: RecoService, private readonly jobs: JobsService) {}
 
   @Post('profile/genres')
-  @ApiOperation({ summary: '프로필 선호 장르 저장/갱신' })
+  @ApiOperation({ summary: '?�로???�호 ?�르 ?�??갱신' })
   async saveFavoriteGenres(@Body() dto: ProfileGenresDto) {
     const res = await this.recoService.upsertFavoriteGenres(dto.userId, dto.favoriteGenres);
     return { userId: res.userId, favoriteGenres: res.favoriteGenres };
   }
 
   @Post('profile/likes')
-  @ApiOperation({ summary: '후보 리스트에서 선택/좋아요한 영화 기록' })
+  @ApiOperation({ summary: '?�보 리스?�에???�택/좋아?�한 ?�화 기록' })
   async saveLikes(@Body() dto: ProfileLikesDto) {
     const res = await this.recoService.addLikes(dto.userId, dto.selectedFromCandidates);
     return { userId: res.userId, likedMovieIds: res.likedMovieIds };
   }
 
   @Get('reco/candidates')
-  @ApiOperation({ summary: '장르 기반 후보 조회 (TMDB discover)' })
-  @ApiQuery({ name: 'genres', required: false, example: '28,878,53', description: 'TMDB 장르 ID CSV' })
+  @ApiOperation({ summary: '?�르 기반 ?�보 조회 (TMDB discover)' })
+  @ApiQuery({ name: 'genres', required: false, example: '28,878,53', description: 'TMDB ?�르 ID CSV' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'size', required: false, example: 20 })
   async candidates(@Query('genres') genres?: string, @Query('page') page = 1, @Query('size') size = 20) {
@@ -43,7 +43,7 @@ export class RecoController {
   }
 
   @Get('reco/personal')
-  @ApiOperation({ summary: '개인화 추천 결과 조회' })
+  @ApiOperation({ summary: '개인??추천 결과 조회' })
   @ApiQuery({ name: 'userId', required: true, example: 'u_12345' })
   @ApiQuery({ name: 'size', required: false, example: 20 })
   async personal(@Query('userId') userId: string, @Query('size') size = 20) {
@@ -51,7 +51,7 @@ export class RecoController {
   }
 
   @Get('reco/jobs/:id')
-  @ApiOperation({ summary: '추천 백그라운드 잡 상태 조회' })
+  @ApiOperation({ summary: '추천 백그?�운?????�태 조회' })
   async jobStatus(@Param('id') id: string) {
     const job = this.jobs.get(id);
     if (!job) return { status: 'not_found' };
@@ -59,13 +59,13 @@ export class RecoController {
   }
 
   @Post('reco/feedback')
-  @ApiOperation({ summary: '추천 피드백(긍/부정) 저장' })
+  @ApiOperation({ summary: '추천 ?�드�?�?부?? ?�?? })
   async feedback(@Body() dto: FeedbackDto) {
     return this.recoService.addFeedback(dto);
   }
 
   @Post('reco/preview')
-  @ApiOperation({ summary: '배치형 개인화 추천 미리보기(저장 없음)' })
+  @ApiOperation({ summary: '배치??개인??추천 미리보기(?�???�음)' })
   async preview(@Body() dto: PreviewDto) {
     const size = Number(dto.size || 20);
     return this.recoService.previewRecommendations({
@@ -77,8 +77,26 @@ export class RecoController {
   }
 
   @Post('reco/commit')
-  @ApiOperation({ summary: '선호 장르/좋아요/싫어요 일괄 반영' })
+  @ApiOperation({ summary: '?�호 ?�르/좋아???�어???�괄 반영' })
   async commit(@Body() dto: CommitDto) {
     return this.recoService.commitPreferences(dto);
   }
-}
+    @Get('reco/logs')
+  @ApiOperation({ summary: '최근 추천 이력 조회(검증용)' })
+  @ApiQuery({ name: 'userId', required: true, example: 'u_12345' })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  async logs(@Query('userId') userId: string, @Query('limit') limit = 20) {
+    const lmt = Number(limit) || 20;
+    const items = await this.recoService.getRecommendationLogs(userId, lmt);
+    return { items };
+  }
+  @Get('reco/history')
+  @ApiOperation({ summary: '최근 추천 이력 조회(검증용)' })
+  @ApiQuery({ name: 'userId', required: true, example: 'u_12345' })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  async history(@Query('userId') userId: string, @Query('limit') limit = 20) {
+    const lmt = Number(limit) || 20;
+    const items = await this.recoService.getRecommendationLogs(userId, lmt);
+    return { items };
+  }
+} 

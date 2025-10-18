@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { RecoController } from './reco.controller';
+import { RecoHistoryController } from './history.controller';
 import { RecoService } from './reco.service';
 import { UserProfile, UserProfileSchema } from './schemas/user-profile.schema';
 import { IngestController } from './ingest.controller';
@@ -25,7 +26,7 @@ import { UserFeedback, UserFeedbackSchema } from './schemas/user-feedback.schema
       { name: UserFeedback.name, schema: UserFeedbackSchema },
     ]),
   ],
-  controllers: [RecoController, IngestController],
+  controllers: [RecoController, IngestController, RecoHistoryController],
   providers: [RecoService, IngestService, JobsService, SbertService],
 })
 export class RecoModule {}

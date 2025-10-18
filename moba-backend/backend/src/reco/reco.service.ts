@@ -553,29 +553,40 @@ export class RecoService {
 
     const res = await this.previewRecommendations({ favoriteGenres, likes, dislikes, size });
 
-    // Log exposures (minimal snapshot)
+    // Log exposures (snapshot with basic movie fields)
     try {
       const now = new Date();
-      const bulk = (res as any).items.map((r: any, idx: number) => ({
-        insertOne: {
-          document: {
-            userId,
-            movieId: r.movieId,
-            score: r.score,
-            position: idx,
-            interacted: false,
-            title: r.title,
-            posterPath: r.posterPath,
-            genres: [],
-            reasons: r.reasons || [],
-            popularity: 0,
-            voteAverage: 0,
-            releaseDate: null,
-            source: 'personal',
-            recommendedAt: now,
+      const items: any[] = (res as any).items || [];
+      const ids = items.map((r: any) => r.movieId);
+      const movies = await this.movieModel
+        .find({ movieId: { $in: ids } }, { movieId: 1, genres: 1, popularity: 1, voteAverage: 1, releaseDate: 1 })
+        .lean();
+      const byId = new Map<number, any>();
+      for (const m of movies) byId.set((m as any).movieId, m);
+      const bulk = items.map((r: any, idx: number) => {
+        const m = byId.get(r.movieId) || {};
+        const genres = (m.genres as number[]) || [];
+        return {
+          insertOne: {
+            document: {
+              userId,
+              movieId: r.movieId,
+              score: r.score,
+              position: idx,
+              interacted: false,
+              title: r.title,
+              posterPath: r.posterPath,
+              genres,
+              reasons: r.reasons || [],
+              popularity: m?.popularity || 0,
+              voteAverage: m?.voteAverage || 0,
+              releaseDate: m?.releaseDate || null,
+              source: 'personal',
+              recommendedAt: now,
+            },
           },
-        },
-      }));
+        };
+      });
       if (bulk.length) await this.logModel.bulkWrite(bulk, { ordered: false });
     } catch {}
 
@@ -598,5 +609,37 @@ export class RecoService {
       );
     }
     return { ok: true };
+  }
+
+  // Helper: fetch recent recommendation logs for verification/debug
+  async getRecommendationLogs(
+    userId: string,
+    limit = 20,
+    opts?: { period?: string; genreId?: number },
+  ) {
+    const lmt = Math.max(1, Math.min(200, Number(limit) || 20));
+    const q: any = { userId };
+    const period = (opts?.period || '').toLowerCase();
+    const now = new Date();
+    if (period === 'today') {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      q.recommendedAt = { $gte: d };
+    } else if (period === '7d') {
+      const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      q.recommendedAt = { $gte: d };
+    } else if (period === '30d') {
+      const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      q.recommendedAt = { $gte: d };
+    }
+    const gid = Number((opts as any)?.genreId);
+    if (Number.isFinite(gid) && gid > 0) {
+      q.genres = { $in: [gid] };
+    }
+    return this.logModel
+      .find(q)
+      .sort({ recommendedAt: -1, createdAt: -1 })
+      .limit(lmt)
+      .lean();
   }
 }
