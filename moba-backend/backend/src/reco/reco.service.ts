@@ -201,6 +201,84 @@ export class RecoService {
       ranked.sort((a, b) => b.score - a.score);
     }
 
+    // Diversity (MMR) for preview to avoid near-duplicates
+    const divEnable = (process.env.DIVERSITY_ENABLE_PREVIEW || '').toLowerCase();
+    const enableMMR = divEnable === '1' || divEnable === 'true';
+    if (enableMMR && ranked.length > 3) {
+      const lambda = Number.isFinite(Number(process.env.DIVERSITY_MMR_LAMBDA))
+        ? Number(process.env.DIVERSITY_MMR_LAMBDA)
+        : 0.8;
+      const mult = Number.isFinite(Number(process.env.DIVERSITY_POOL_MULTIPLIER))
+        ? Math.max(2, Number(process.env.DIVERSITY_POOL_MULTIPLIER))
+        : 3;
+      const topPool = Math.min(ranked.length, args.size * mult);
+      const candidates = ranked.slice(0, topPool);
+
+      // Fetch SBERT vectors for candidates
+      const ids = candidates.map((c) => c.movieId);
+      const vecs = await this.vecModel.find({ movieId: { $in: ids } }, { movieId: 1, sbert: 1 }).lean();
+      const mapS = new Map<number, number[]>();
+      for (const v of vecs) mapS.set((v as any).movieId, (v as any).sbert || []);
+
+      // Build quick lookup for genres from pool
+      const gMap = new Map<number, number[]>();
+      for (const m of pool) gMap.set(m.id, (m.genre_ids || (m.genres ? m.genres.map((g) => g.id) : [])) || []);
+
+      // Normalize base scores to 0..1
+      let minS = Infinity,
+        maxS = -Infinity;
+      for (const c of candidates) {
+        if (c.score < minS) minS = c.score;
+        if (c.score > maxS) maxS = c.score;
+      }
+      const norm = (s: number) => (maxS > minS ? (s - minS) / (maxS - minS) : 0.5);
+
+      const selected: typeof ranked = [];
+      const rest = new Set<number>(ids);
+      const simCache = new Map<string, number>();
+      const simAB = (a: number, b: number) => {
+        if (a === b) return 1;
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        if (simCache.has(key)) return simCache.get(key)!;
+        const va = mapS.get(a);
+        const vb = mapS.get(b);
+        let sim = 0;
+        if (va?.length && vb?.length) {
+          sim = cosineVec(va, vb);
+        } else {
+          const ga = new Set(gMap.get(a) || []);
+          const gb = new Set(gMap.get(b) || []);
+          const inter = Array.from(ga).filter((x) => gb.has(x)).length;
+          const uni = new Set([...Array.from(ga), ...Array.from(gb)]).size || 1;
+          sim = inter / uni; // Jaccard proxy
+        }
+        simCache.set(key, sim);
+        return sim;
+      };
+
+      while (selected.length < args.size && rest.size > 0) {
+        let bestId = -1;
+        let bestScore = -Infinity;
+        for (const id of rest) {
+          const item = candidates.find((c) => c.movieId === id);
+          if (!item) continue;
+          const rel = norm(item.score);
+          let div = 0;
+          for (const s of selected) div = Math.max(div, simAB(id, s.movieId));
+          const mmr = lambda * rel - (1 - lambda) * div;
+          if (mmr > bestScore) {
+            bestScore = mmr;
+            bestId = id;
+          }
+        }
+        if (bestId === -1) break;
+        const pick = candidates.find((c) => c.movieId === bestId)!;
+        selected.push(pick);
+        rest.delete(bestId);
+      }
+      if (selected.length) ranked = selected;
+    }
+
     const meta = { partial: false, source: 'local' } as any;
     return { items: ranked, meta } as any;
   }
