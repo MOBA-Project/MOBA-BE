@@ -277,6 +277,22 @@ export class RecoService {
 
     // Finalize: if MMR disabled, trim to size
     if (!(enableMMR)) ranked = ranked.slice(0, size);
+
+    // Add normalized final score (0~100) for UI display
+    try {
+      let minS = Infinity;
+      let maxS = -Infinity;
+      for (const r of ranked) {
+        if (r.score < minS) minS = r.score;
+        if (r.score > maxS) maxS = r.score;
+      }
+      const denom = maxS - minS;
+      for (const r of ranked) {
+        const norm = denom > 0 ? (r.score - minS) / denom : 0.5;
+        (r as any).finalScoreNorm = Math.round(norm * 100);
+      }
+    } catch {}
+
     const meta = { partial: false, source: 'local' } as any;
     return { items: ranked, meta } as any;
   }
