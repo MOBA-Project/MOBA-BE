@@ -201,11 +201,32 @@ export class RecoService {
       const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }, { movieId: 1, sbert: 1 }).lean();
       const mapS = new Map<number, number[]>();
       for (const v of vecs) mapS.set(v.movieId, (v as any).sbert || []);
+      // On-the-fly for missing candidate vectors (limited)
+      const enableOTF = this.isTrue(process.env.ON_THE_FLY_SBERT || 'true');
+      if (enableOTF) {
+        const limit = Math.max(1, Number(process.env.ON_THE_FLY_LIMIT || 30));
+        let used = 0;
+        for (const r of ranked) {
+          if (mapS.has(r.movieId)) continue;
+          if (used >= limit) break;
+          const src = pool.find((m) => m.id === r.movieId);
+          const text = this.sbertSvc.buildMovieText({ overview: src?.overview || '' });
+          const emb = await this.embedTextOnTheFly(text);
+          if (emb && emb.length) {
+            mapS.set(r.movieId, emb);
+            used++;
+          }
+        }
+      }
       const wS = Number(process.env.BLEND_SBERT ?? 0.5);
+      const minSim = Number(process.env.SBERT_MIN_SIM || 0);
       for (const r of ranked) {
         const mvS = mapS.get(r.movieId);
         if (!mvS?.length) continue;
         const cosS = cosineVec(userSbert, mvS);
+        if (minSim > 0 && cosS < minSim) {
+          continue;
+        }
         let negS = 0;
         if (userNegSbert?.length) negS = cosineVec(userNegSbert, mvS);
         r.score = r.score + wS * cosS - 0.2 * negS;
@@ -631,6 +652,28 @@ export class RecoService {
           for (let i = 0; i < dim; i++) userSbert[i] = userSbert[i] / countEmb;
         }
       }
+      // On-the-fly SBERT if none could be built from stored vectors
+      const enableOTF = this.isTrue(process.env.ON_THE_FLY_SBERT || 'true');
+      if ((!userSbert || !userSbert.length) && enableOTF) {
+        try {
+          const movies = await this.movieModel.find({ movieId: { $in: likedIds } }, { overview: 1, title: 1 }).lean();
+          let otfCount = 0;
+          const limit = Math.max(1, Number(process.env.ON_THE_FLY_LIMIT || 20));
+          for (const m of movies) {
+            if (otfCount >= limit) break;
+            const text = this.sbertSvc.buildMovieText({ overview: (m as any).overview || '' });
+            const emb = await this.embedTextOnTheFly(text);
+            if (emb && emb.length) {
+              if (!userSbert) userSbert = Array(emb.length).fill(0);
+              for (let i = 0; i < emb.length; i++) userSbert[i] += emb[i] || 0;
+              otfCount++;
+            }
+          }
+          if (userSbert && otfCount > 0) {
+            for (let i = 0; i < userSbert.length; i++) userSbert[i] = userSbert[i] / otfCount;
+          }
+        } catch {}
+      }
     }
     if (dislikedIds.length) {
       const negs = await this.vecModel.find({ movieId: { $in: dislikedIds } }).lean();
@@ -655,6 +698,27 @@ export class RecoService {
         if (userNegSbert && countEmb > 0 && dim > 0) {
           for (let i = 0; i < dim; i++) userNegSbert[i] = userNegSbert[i] / countEmb;
         }
+      }
+      const enableOTF = this.isTrue(process.env.ON_THE_FLY_SBERT || 'true');
+      if ((!userNegSbert || !userNegSbert.length) && enableOTF) {
+        try {
+          const movies = await this.movieModel.find({ movieId: { $in: dislikedIds } }, { overview: 1, title: 1 }).lean();
+          let otfCount = 0;
+          const limit = Math.max(1, Number(process.env.ON_THE_FLY_LIMIT || 20));
+          for (const m of movies) {
+            if (otfCount >= limit) break;
+            const text = this.sbertSvc.buildMovieText({ overview: (m as any).overview || '' });
+            const emb = await this.embedTextOnTheFly(text);
+            if (emb && emb.length) {
+              if (!userNegSbert) userNegSbert = Array(emb.length).fill(0);
+              for (let i = 0; i < emb.length; i++) userNegSbert[i] += emb[i] || 0;
+              otfCount++;
+            }
+          }
+          if (userNegSbert && otfCount > 0) {
+            for (let i = 0; i < userNegSbert.length; i++) userNegSbert[i] = userNegSbert[i] / otfCount;
+          }
+        } catch {}
       }
     }
 
@@ -713,13 +777,32 @@ export class RecoService {
       const vecs = await this.vecModel.find({ movieId: { $in: poolIds } }, { movieId: 1, sbert: 1 }).lean();
       const mapS = new Map<number, number[]>();
       for (const v of vecs) mapS.set(v.movieId, (v as any).sbert || []);
+      const enableOTF = this.isTrue(process.env.ON_THE_FLY_SBERT || 'true');
+      if (enableOTF) {
+        const limit = Math.max(1, Number(process.env.ON_THE_FLY_LIMIT || 30));
+        let used = 0;
+        for (const r of ranked) {
+          if (mapS.has(r.movieId)) continue;
+          if (used >= limit) break;
+          const src = pool.find((m) => m.id === r.movieId);
+          const text = this.sbertSvc.buildMovieText({ overview: src?.overview || '' });
+          const emb = await this.embedTextOnTheFly(text);
+          if (emb && emb.length) {
+            mapS.set(r.movieId, emb);
+            used++;
+          }
+        }
+      }
       const wS = Number(process.env.BLEND_SBERT ?? 0.5);
       const wSN = Number(process.env.BLEND_SBERT_NEG ?? 0.4);
+      const minSim = Number(process.env.SBERT_MIN_SIM || 0);
       for (const r of ranked) {
         const mvS = mapS.get(r.movieId);
         if (!mvS?.length) continue;
         const cosS = userSbert ? cosineVec(userSbert, mvS) : 0;
-        // negative SBERT penalty
+        if (minSim > 0 && cosS < minSim) {
+          continue;
+        }
         let negS = 0;
         if (userNegSbert?.length) negS = cosineVec(userNegSbert, mvS);
         r.score = r.score + wS * cosS - wSN * negS;
