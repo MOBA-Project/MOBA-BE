@@ -122,6 +122,7 @@ export class ReviewsController {
     return {
       _id: review._id?.toString() ?? '',
       userId: review.userId.toString(),
+      nickname: (review.userId as any)?.nickname,
       movieId: review.movieId,
       rating: review.rating,
       content: review.content,
