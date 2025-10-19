@@ -53,7 +53,7 @@ backend/
 
 ```bash
 PORT=4000
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/moba
+MONGO_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/mova
 JWT_ACCESS_SECRET=mySuperSecretAccessKey
 JWT_REFRESH_SECRET=mySuperSecretRefreshKey
 JWT_EXPIRES_IN=1h
@@ -67,8 +67,8 @@ TMDB_API_KEY=<your_tmdb_api_key>
 ### 1️⃣ Clone Repository
 
 ```bash
-git clone https://github.com/MOBA-Project/MOBA-BE.git
-cd MOBA-BE/backend
+git clone https://github.com/MOVA-Project/MOVA-BE.git
+cd MOVA-BE/backend
 ```
 
 ### 2️⃣ Install Dependencies
