@@ -86,7 +86,7 @@ export class ReviewsService {
       throw new BadRequestException('유효하지 않은 리뷰 ID입니다.');
     }
 
-    const review = await this.reviewModel.findById(reviewId);
+    const review = await this.reviewModel.findById(reviewId).populate('userId', 'nickname');
     if (!review) {
       throw new NotFoundException('리뷰를 찾을 수 없습니다.');
     }
