@@ -106,7 +106,7 @@ export class ReviewCommentsService {
     const sortOption: any = sort === 'likes' ? { likes: -1, createdAt: -1 } : { createdAt: -1 };
 
     const [items, total] = await Promise.all([
-      this.reviewCommentModel.find(filter).sort(sortOption).skip(skip).limit(limit).exec(),
+      this.reviewCommentModel.find(filter).populate('userId', 'nickname').sort(sortOption).skip(skip).limit(limit).exec(),
       this.reviewCommentModel.countDocuments(filter),
     ]);
 
@@ -119,7 +119,7 @@ export class ReviewCommentsService {
       throw new BadRequestException('유효하지 않은 댓글 ID입니다.');
     }
 
-    const comment = await this.reviewCommentModel.findById(commentId);
+    const comment = await this.reviewCommentModel.findById(commentId).populate('userId', 'nickname');
     if (!comment) {
       throw new NotFoundException('댓글을 찾을 수 없습니다.');
     }
