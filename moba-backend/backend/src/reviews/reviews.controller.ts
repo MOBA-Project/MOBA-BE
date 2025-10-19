@@ -68,7 +68,25 @@ export class ReviewsController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
   ) {
-    return this.reviewsService.getReviewsByMovie(movieId, page, limit);
+    const result = await this.reviewsService.getReviewsByMovie(movieId, page, limit);
+
+    return {
+      ...result,
+      reviews: result.reviews.map(review => ({
+        _id: review._id?.toString() ?? '',
+        userId: review.userId.toString(),
+        nickname: (review.userId as any)?.nickname,
+        movieId: review.movieId,
+        rating: review.rating,
+        content: review.content,
+        likes: review.likes,
+        dislikes: review.dislikes,
+        tags: review.tags,
+        isSpoiler: review.isSpoiler,
+        createdAt: review.createdAt ?? new Date(),
+        updatedAt: review.updatedAt ?? new Date(),
+      })),
+    };
   }
 
   @Get('user/me')

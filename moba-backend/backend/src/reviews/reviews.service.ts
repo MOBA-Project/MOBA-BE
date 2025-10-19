@@ -60,6 +60,7 @@ export class ReviewsService {
     const [reviews, total] = await Promise.all([
       this.reviewModel
         .find({ movieId })
+        .populate('userId', 'nickname')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -77,7 +78,7 @@ export class ReviewsService {
 
   // 특정 유저의 리뷰 목록 조회
   async getReviewsByUser(userId: Types.ObjectId): Promise<ReviewDocument[]> {
-    return this.reviewModel.find({ userId }).sort({ createdAt: -1 }).exec();
+    return this.reviewModel.find({ userId }).populate('userId', 'nickname').sort({ createdAt: -1 }).exec();
   }
 
   // 리뷰 상세 조회
