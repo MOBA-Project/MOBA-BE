@@ -1,6 +1,6 @@
-# 🎬 MOBA Backend (NestJS + MongoDB)
+# 🎬 MOVA Backend (NestJS + MongoDB)
 
-> **MOBA** — Movie Bookmark & Review App
+> **MOVA** — Movie Bookmark & Review App
 > 영화 검색, 북마크, 리뷰(댓글/대댓글) 기능을 제공하는 RESTful 백엔드 API
 > built with **NestJS**, **MongoDB (Mongoose)**, and **TMDB API**
 
