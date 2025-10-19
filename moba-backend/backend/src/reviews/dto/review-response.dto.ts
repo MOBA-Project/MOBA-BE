@@ -7,6 +7,9 @@ export class ReviewResponseDto {
   @ApiProperty({ example: '66e9488ad52f4b7a...', description: '작성자 ID' })
   userId: string;
 
+  @ApiProperty({ example: '영화매니아', description: '작성자 닉네임' })
+  nickname?: string;
+
   @ApiProperty({ example: 550, description: 'TMDB 영화 ID' })
   movieId: number;
 

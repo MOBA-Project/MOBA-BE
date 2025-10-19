@@ -10,6 +10,9 @@ export class ReviewCommentResponseDto {
   @ApiProperty({ description: '작성자 ID', example: '507f1f77bcf86cd799439013' })
   userId: string;
 
+  @ApiProperty({ description: '작성자 닉네임', example: '영화팬123' })
+  nickname?: string;
+
   @ApiProperty({ description: '댓글 내용', example: '정말 공감되는 리뷰네요!' })
   content: string;
 
