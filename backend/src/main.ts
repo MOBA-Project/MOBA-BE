@@ -50,7 +50,7 @@ async function bootstrap() {
 
   // Swagger 설정
   const config = new DocumentBuilder()
-    .setTitle('MOBA Movie API')
+    .setTitle('MOVA Movie API')
     .setDescription('The Movie information API built with NestJS')
     .setVersion('1.0')
     .addTag('movies')
