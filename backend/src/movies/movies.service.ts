@@ -1,13 +1,10 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import axios from 'axios';
-import { TranslationService } from './translation.service';
 
 @Injectable()
 export class MoviesService {
   private readonly BASE_URL = 'https://api.themoviedb.org/3';
   private readonly API_KEY = process.env.TMDB_API_KEY;
-
-  constructor(private readonly translationService: TranslationService) {}
 
   async getMovies(page = 1, genre?: string) {
     try {
@@ -84,28 +81,9 @@ export class MoviesService {
       };
     });
 
-    // 번역 서비스로 추가 번역 (영어 이름이 있는 경우)
-    const translatedCast = await this.translationService.translateCast(
-      mergedCast.map((actor: any) => ({
-        name: actor.name,
-        character: actor.character,
-      })),
-    );
-
-    // 최종 결과 생성
-    const finalCast = mergedCast.map((actor: any, idx: number) => {
-      const translated = translatedCast[idx];
-      return {
-        ...actor,
-        // 번역된 한국어 제공 (있는 경우)
-        name_ko: translated.nameKo,
-        character_ko: translated.characterKo,
-      };
-    });
-
     return {
       ...koData,
-      cast: finalCast,
+      cast: mergedCast,
     };
   }
 }
