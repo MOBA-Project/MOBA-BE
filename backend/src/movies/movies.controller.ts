@@ -44,6 +44,13 @@ export class MoviesController {
     }
   }
 
+  @Get('person/:id')
+  @ApiOperation({ summary: '배우/인물 상세 정보', description: '특정 인물의 상세 정보를 가져옵니다 (한국어 우선).' })
+  @ApiParam({ name: 'id', example: '12345', description: 'TMDB 인물 ID' })
+  getPersonDetail(@Param('id') id: string) {
+    return this.moviesService.getPersonDetail(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '영화 상세 정보', description: '특정 영화의 상세 정보를 가져옵니다.' })
   @ApiParam({ name: 'id', example: '12345', description: 'TMDB 영화 ID' })

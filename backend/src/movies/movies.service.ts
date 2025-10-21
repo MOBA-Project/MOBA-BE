@@ -86,4 +86,15 @@ export class MoviesService {
       cast: mergedCast,
     };
   }
+
+  async getPersonDetail(id: string) {
+    try {
+      // 한국어로 먼저 요청
+      const url = `${this.BASE_URL}/person/${id}?language=ko-KR&api_key=${this.API_KEY}`;
+      const { data } = await axios.get(url);
+      return data;
+    } catch (error) {
+      throw new HttpException('Failed to fetch person details', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }
