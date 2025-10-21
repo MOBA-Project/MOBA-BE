@@ -1,10 +1,13 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import axios from 'axios';
+import { TranslationService } from './translation.service';
 
 @Injectable()
 export class MoviesService {
   private readonly BASE_URL = 'https://api.themoviedb.org/3';
   private readonly API_KEY = process.env.TMDB_API_KEY;
+
+  constructor(private readonly translationService: TranslationService) {}
 
   async getMovies(page = 1, genre?: string) {
     try {
