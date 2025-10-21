@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { pipeline, Pipeline } from '@xenova/transformers';
+import { pipeline } from '@xenova/transformers';
 
 @Injectable()
 export class TranslationService {
   private readonly logger = new Logger(TranslationService.name);
-  private translationPipeline: Pipeline | null = null;
+  private translationPipeline: any = null;
   private initPromise: Promise<void> | null = null;
   private readonly enabled: boolean;
 
