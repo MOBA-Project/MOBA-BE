@@ -63,8 +63,49 @@ export class MoviesService {
   }
 
   async getMovieCredits(id: string) {
-    const url = `${this.BASE_URL}/movie/${id}/credits?language=ko-KR&api_key=${this.API_KEY}`;
-    const { data } = await axios.get(url);
-    return data;
+    // 한국어로 먼저 요청
+    const koUrl = `${this.BASE_URL}/movie/${id}/credits?language=ko-KR&api_key=${this.API_KEY}`;
+    const { data: koData } = await axios.get(koUrl);
+
+    // 영어로도 요청 (fallback용)
+    const enUrl = `${this.BASE_URL}/movie/${id}/credits?language=en-US&api_key=${this.API_KEY}`;
+    const { data: enData } = await axios.get(enUrl);
+
+    // 한국어 데이터와 영어 데이터 병합
+    const mergedCast = koData.cast.map((koCast: any, idx: number) => {
+      const enCast = enData.cast[idx] || {};
+      return {
+        ...koCast,
+        // 한국어가 없으면 영어 사용
+        name: koCast.name || enCast.name,
+        character: koCast.character || enCast.character || '역할 정보 없음',
+        // 원본 영어 데이터도 함께 제공
+        original_name: enCast.name,
+      };
+    });
+
+    // 번역 서비스로 추가 번역 (영어 이름이 있는 경우)
+    const translatedCast = await this.translationService.translateCast(
+      mergedCast.map((actor: any) => ({
+        name: actor.name,
+        character: actor.character,
+      })),
+    );
+
+    // 최종 결과 생성
+    const finalCast = mergedCast.map((actor: any, idx: number) => {
+      const translated = translatedCast[idx];
+      return {
+        ...actor,
+        // 번역된 한국어 제공 (있는 경우)
+        name_ko: translated.nameKo,
+        character_ko: translated.characterKo,
+      };
+    });
+
+    return {
+      ...koData,
+      cast: finalCast,
+    };
   }
 }
